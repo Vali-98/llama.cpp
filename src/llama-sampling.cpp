@@ -178,6 +178,7 @@ void llama_sample_xtc_impl(struct llama_sampling * smpl, llama_token_data_array 
     
     bool xtc_applied = false;
     const int64_t t_start_sample_us = ggml_time_us();
+    llama_sample_softmax(nullptr, candidates);
     
     // unsorted iteration
     if (!candidates->sorted) {
@@ -232,7 +233,7 @@ void llama_sample_xtc_impl(struct llama_sampling * smpl, llama_token_data_array 
         size_t last_index = 0;
 
         for (; last_index < candidates -> size; ++last_index) {
-            if(candidates -> data[last_index].logit < xtc_threshold) {
+            if(candidates -> data[last_index].p < xtc_threshold) {
                 break;
             }
         }
