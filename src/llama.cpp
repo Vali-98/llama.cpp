@@ -104,6 +104,17 @@
 #define LLAMA_MAX_LAYERS  512
 #define LLAMA_MAX_EXPERTS 160  // DeepSeekV2
 
+#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
+#include <android/log.h>
+#define LLAMA_ANDROID_TAG "RNLLAMA_LOG_ANDROID"
+#undef LLAMA_LOG_INFO
+#undef LLAMA_LOG_WARN
+#undef LLAMA_LOG_ERROR
+#define LLAMA_LOG_INFO(...)  __android_log_print(ANDROID_LOG_INFO , LLAMA_ANDROID_TAG, __VA_ARGS__)
+#define LLAMA_LOG_WARN(...)  __android_log_print(ANDROID_LOG_WARN , LLAMA_ANDROID_TAG, __VA_ARGS__)
+#define LLAMA_LOG_ERROR(...) __android_log_print(ANDROID_LOG_ERROR, LLAMA_ANDROID_TAG, __VA_ARGS__)
+#endif // __ANDROID__
+
 //
 // helpers
 //
@@ -1741,16 +1752,16 @@ struct llama_mmap {
 
         if (prefetch > 0) {
             // advise the kernel to preload the mapped memory
-            if (posix_madvise(addr, std::min(file->size, prefetch), POSIX_MADV_WILLNEED)) {
-                LLAMA_LOG_WARN("warning: posix_madvise(.., POSIX_MADV_WILLNEED) failed: %s\n",
+            if (madvise(addr, std::min(file->size, prefetch), MADV_WILLNEED)) {
+                fprintf(stderr, "warning: madvise(.., MADV_WILLNEED) failed: %s\n",
                         strerror(errno));
             }
         }
         if (numa) {
             // advise the kernel not to use readahead
             // (because the next page might not belong on the same node)
-            if (posix_madvise(addr, file->size, POSIX_MADV_RANDOM)) {
-                LLAMA_LOG_WARN("warning: posix_madvise(.., POSIX_MADV_RANDOM) failed: %s\n",
+            if (madvise(addr, file->size, MADV_RANDOM)) {
+                fprintf(stderr, "warning: madvise(.., MADV_RANDOM) failed: %s\n",
                         strerror(errno));
             }
         }
@@ -19546,6 +19557,10 @@ void llama_sample_top_p(struct llama_context * ctx, llama_token_data_array * can
 
 void llama_sample_min_p(struct llama_context * ctx, llama_token_data_array * candidates, float p, size_t min_keep) {
     llama_sample_min_p_impl(ctx ? &ctx->sampling : nullptr, candidates, p, min_keep);
+}
+
+void llama_sample_xtc(struct llama_context * ctx, llama_token_data_array * candidates, float xtc_threshold, float xtc_probability, size_t min_keep, std::mt19937 rng){
+    llama_sample_xtc_impl(ctx ? &ctx-> sampling: nullptr, candidates, xtc_threshold, xtc_probability, min_keep, rng);
 }
 
 void llama_sample_tail_free(struct llama_context * ctx, llama_token_data_array * candidates, float z, size_t min_keep) {
