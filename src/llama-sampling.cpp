@@ -177,7 +177,7 @@ void llama_sample_xtc_impl(struct llama_sampling * smpl, llama_token_data_array 
     }
     // TODO: xtc impl
     bool xtc_applied = false;
-    const int64_t t_start_sample_us = lm_ggml_time_us();
+    const int64_t t_start_sample_us = ggml_time_us();
     
     // unsorted iteration
     if (!candidates->sorted) {
@@ -259,7 +259,7 @@ void llama_sample_xtc_impl(struct llama_sampling * smpl, llama_token_data_array 
     }
 
     if (smpl) {
-        smpl->t_sample_us += lm_ggml_time_us() - t_start_sample_us;
+        smpl->t_sample_us += ggml_time_us() - t_start_sample_us;
     }
 }
 
