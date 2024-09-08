@@ -187,6 +187,9 @@ struct gpt_sampler * gpt_sampler_init(const struct llama_model * model, const st
                     case GPT_SAMPLER_TYPE_TYPICAL_P:
                         llama_sampler_chain_add(result->chain, llama_sampler_init_typical  (params.typ_p, params.min_keep));
                         break;
+                    case GPT_SAMPLER_TYPE_XTC:
+                        llama_sampler_chain_add(result->chain, llama_sampler_init_xtc      (params.xtc_p, params.xtc_t, params.min_keep, params.seed));
+                        break;
                     case GPT_SAMPLER_TYPE_TEMPERATURE:
                         llama_sampler_chain_add(result->chain, llama_sampler_init_temp_ext (params.temp, params.dynatemp_range, params.dynatemp_exponent));
                         break;
@@ -357,6 +360,7 @@ char gpt_sampler_type_to_chr(enum gpt_sampler_type cnstr) {
         case GPT_SAMPLER_TYPE_TOP_P:       return 'p';
         case GPT_SAMPLER_TYPE_MIN_P:       return 'm';
         case GPT_SAMPLER_TYPE_TEMPERATURE: return 't';
+        case GPT_SAMPLER_TYPE_XTC:         return 'x';
         default : return '?';
     }
 }
@@ -368,6 +372,7 @@ std::string gpt_sampler_type_to_str(enum gpt_sampler_type cnstr) {
         case GPT_SAMPLER_TYPE_TYPICAL_P:   return "typ_p";
         case GPT_SAMPLER_TYPE_TOP_P:       return "top_p";
         case GPT_SAMPLER_TYPE_MIN_P:       return "min_p";
+        case GPT_SAMPLER_TYPE_XTC:         return "xtc";
         case GPT_SAMPLER_TYPE_TEMPERATURE: return "temperature";
         default : return "";
     }
@@ -380,6 +385,7 @@ std::vector<gpt_sampler_type> gpt_sampler_types_from_names(const std::vector<std
         { "typ_p",       GPT_SAMPLER_TYPE_TYPICAL_P },
         { "min_p",       GPT_SAMPLER_TYPE_MIN_P },
         { "tfs_z",       GPT_SAMPLER_TYPE_TFS_Z },
+        { "xtc",         GPT_SAMPLER_TYPE_XTC},
         { "temperature", GPT_SAMPLER_TYPE_TEMPERATURE },
     };
 
@@ -396,6 +402,8 @@ std::vector<gpt_sampler_type> gpt_sampler_types_from_names(const std::vector<std
         { "min-p",       GPT_SAMPLER_TYPE_MIN_P },
         { "tfs-z",       GPT_SAMPLER_TYPE_TFS_Z },
         { "tfs",         GPT_SAMPLER_TYPE_TFS_Z },
+        { "xtc_p",       GPT_SAMPLER_TYPE_XTC},
+        { "xtc_t",       GPT_SAMPLER_TYPE_XTC},
         { "temp",        GPT_SAMPLER_TYPE_TEMPERATURE },
     };
 
@@ -426,6 +434,7 @@ std::vector<gpt_sampler_type> gpt_sampler_types_from_chars(const std::string & c
         { gpt_sampler_type_to_chr(GPT_SAMPLER_TYPE_TYPICAL_P),   GPT_SAMPLER_TYPE_TYPICAL_P },
         { gpt_sampler_type_to_chr(GPT_SAMPLER_TYPE_TOP_P),       GPT_SAMPLER_TYPE_TOP_P },
         { gpt_sampler_type_to_chr(GPT_SAMPLER_TYPE_MIN_P),       GPT_SAMPLER_TYPE_MIN_P },
+        { gpt_sampler_type_to_chr(GPT_SAMPLER_TYPE_XTC),         GPT_SAMPLER_TYPE_XTC},
         { gpt_sampler_type_to_chr(GPT_SAMPLER_TYPE_TEMPERATURE), GPT_SAMPLER_TYPE_TEMPERATURE }
     };
 

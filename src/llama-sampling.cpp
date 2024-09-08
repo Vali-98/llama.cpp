@@ -211,7 +211,7 @@ void llama_sample_xtc_impl(llama_token_data_array * cur_p, float xtc_threshold, 
         }
     }
     // sorted iteration
-    
+
     if (!xtc_applied) {
         // Sort the logits in descending order
         if (!cur_p->sorted) {
@@ -876,6 +876,46 @@ struct llama_sampler * llama_sampler_init_min_p(float p, size_t min_keep) {
         /* .ctx   = */ new llama_sampler_min_p {
             /* .p        = */ p,
             /* .min_keep = */ min_keep,
+        },
+    };
+}
+
+// xtc
+
+struct llama_sampler_xtc {
+    const uint32_t seed;
+    std::mt19937 rng;
+    const float xtc_p;
+    const float xtc_t;
+    const size_t min_keep;
+};
+
+static struct llama_sampler_i llama_sampler_xtc_i = {
+    /* .name   = */ [](const struct llama_sampler * /*smpl*/) { return "xtc"; },
+    /* .accept = */ nullptr,
+    /* .apply  = */ [](struct llama_sampler * smpl, llama_token_data_array * cur_p) {
+        auto * ctx = (llama_sampler_xtc *) smpl->ctx;
+        llama_sample_xtc_impl(cur_p, ctx->xtc_t, ctx->xtc_p, ctx->min_keep, ctx->rng);
+    },
+    /* .reset  = */ nullptr,
+    /* .clone  = */ [](const struct llama_sampler * smpl) {
+        const auto * ctx = (const llama_sampler_xtc *) smpl->ctx;
+        return llama_sampler_init_xtc(ctx->xtc_p, ctx->xtc_t, ctx->min_keep, ctx->seed);
+    },
+    /* .free   = */ [](struct llama_sampler * smpl) {
+        delete (llama_sampler_xtc *) smpl->ctx;
+    },
+};
+
+struct llama_sampler * llama_sampler_init_xtc(float xtc_p, float xtc_t, size_t min_keep, uint32_t seed) {
+    return new llama_sampler {
+        /* .iface = */ &llama_sampler_xtc_i,
+        /* .ctx   = */ new llama_sampler_xtc {
+            /* .seed        = */ seed,
+            /* .rng         = */ std::mt19937(seed),
+            /* .xtc_p       = */ xtc_p,
+            /* .xtc_t       = */ xtc_t,
+            /* .min_keep    = */ min_keep
         },
     };
 }

@@ -13,6 +13,7 @@ enum gpt_sampler_type {
     GPT_SAMPLER_TYPE_TFS_Z       = 4,
     GPT_SAMPLER_TYPE_TYPICAL_P   = 5,
     GPT_SAMPLER_TYPE_TEMPERATURE = 6,
+    GPT_SAMPLER_TYPE_XTC         = 7,
 };
 
 // sampling parameters
@@ -26,6 +27,8 @@ struct gpt_sampler_params {
     float   top_p             = 0.95f; // 1.0 = disabled
     float   min_p             = 0.05f; // 0.0 = disabled
     float   tfs_z             = 1.00f; // 1.0 = disabled
+    float   xtc_t             = 0.0f;  // 0.0 = disabled
+    float   xtc_p             = 0.0f;
     float   typ_p             = 1.00f; // typical_p, 1.0 = disabled
     float   temp              = 0.80f; // <= 0.0 to sample greedily, 0.0 to not output probabilities
     float   dynatemp_range    = 0.00f; // 0.0 = disabled
@@ -46,6 +49,7 @@ struct gpt_sampler_params {
         GPT_SAMPLER_TYPE_TYPICAL_P,
         GPT_SAMPLER_TYPE_TOP_P,
         GPT_SAMPLER_TYPE_MIN_P,
+        GPT_SAMPLER_TYPE_XTC,
         GPT_SAMPLER_TYPE_TEMPERATURE
     };
 

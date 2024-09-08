@@ -1075,13 +1075,7 @@ extern "C" {
     LLAMA_API struct llama_sampler * llama_sampler_init_min_p      (float   p, size_t min_keep);
 
     /// @details XTC sampling
-    LLAMA_API void llama_sample_xtc(
-        struct llama_context * ctx, 
-        llama_token_data_array * candidates, 
-        float xtc_threshold, 
-        float xtc_probability, 
-        size_t min_keep, 
-        std::mt19937 rng);
+    LLAMA_API struct llama_sampler * llama_sampler_init_xtc        (float xtc_p, float xtc_t, size_t min_keep, uint32_t seed);
 
     /// @details Tail Free Sampling described in https://www.trentonbricken.com/Tail-Free-Sampling/.
     LLAMA_API struct llama_sampler * llama_sampler_init_tail_free  (float   z, size_t min_keep);
