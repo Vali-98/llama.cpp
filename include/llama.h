@@ -1183,7 +1183,7 @@ extern "C" {
     LLAMA_API void llama_perf_dump_yaml(FILE * stream, const struct llama_context * ctx);
 
     // Keeps timings of samplers
-    LLAMA_API struct llama_sampler_timings {double t_sample_us; int32_t n_sample;};
+    LLAMA_API struct llama_sampler_timings {int64_t t_sample_us; int32_t n_sample;};
     LLAMA_API struct llama_token_timings {
         double t_start_ms;
         double t_end_ms;
