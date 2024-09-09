@@ -606,7 +606,9 @@ std::string llama_arg::to_string() {
             if (args.size() == 1) {
                 ss << arg;
             } else {
-                ss << format("%-7s", arg) << ", ";
+                // first arg is usually abbreviation, we need padding to make it more beautiful
+                auto tmp = std::string(arg) + ", ";
+                ss << format("%-7s", tmp.c_str());
             }
         } else {
             ss << arg << (arg != args.back() ? ", " : "");
@@ -677,17 +679,8 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
      * - if LLAMA_EXAMPLE_* is set (other than COMMON), we only show the option in the corresponding example
      * - if both {LLAMA_EXAMPLE_COMMON, LLAMA_EXAMPLE_*,} are set, we will prioritize the LLAMA_EXAMPLE_* matching current example
      */
-    std::unordered_set<std::string> seen_args;
     auto add_opt = [&](llama_arg arg) {
         if (arg.in_example(ex) || arg.in_example(LLAMA_EXAMPLE_COMMON)) {
-            // make sure there is no argument duplications
-            for (const auto & a : arg.args) {
-                if (seen_args.find(a) == seen_args.end()) {
-                    seen_args.insert(a);
-                } else {
-                    throw std::runtime_error(format("found duplicated argument in source code: %s", a));
-                }
-            }
             options.push_back(std::move(arg));
         }
     };
@@ -794,8 +787,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
     add_opt(llama_arg(
         {"-C", "--cpu-mask"}, "M",
         "CPU affinity mask: arbitrarily long hex. Complements cpu-range (default: \"\")",
-        [](gpt_params & params, const std::string & value) {
-            std::string mask = value;
+        [](gpt_params & params, const std::string & mask) {
             params.cpuparams.mask_valid = true;
             if (!parse_cpu_mask(mask, params.cpuparams.cpumask)) {
                 throw std::invalid_argument("invalid cpumask");
@@ -805,8 +797,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
     add_opt(llama_arg(
         {"-Cr", "--cpu-range"}, "lo-hi",
         "range of CPUs for affinity. Complements --cpu-mask",
-        [](gpt_params & params, const std::string & value) {
-            std::string range = value;
+        [](gpt_params & params, const std::string & range) {
             params.cpuparams.mask_valid = true;
             if (!parse_cpu_range(range, params.cpuparams.cpumask)) {
                 throw std::invalid_argument("invalid range");
@@ -821,6 +812,16 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         }
     ));
     add_opt(llama_arg(
+        {"--prio"}, "N",
+        format("set process/thread priority : 0-normal, 1-medium, 2-high, 3-realtime (default: %d)\n", params.cpuparams.priority),
+        [](gpt_params & params, int prio) {
+            if (prio < 0 || prio > 3) {
+                throw std::invalid_argument("invalid value");
+            }
+            params.cpuparams.priority = (enum ggml_sched_priority) prio;
+        }
+    ));
+    add_opt(llama_arg(
         {"--poll"}, "<0...100>",
         format("use polling level to wait for work (0 - no polling, default: %u)\n", (unsigned) params.cpuparams.poll),
         [](gpt_params & params, const std::string & value) {
@@ -830,8 +831,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
     add_opt(llama_arg(
         {"-Cb", "--cpu-mask-batch"}, "M",
         "CPU affinity mask: arbitrarily long hex. Complements cpu-range-batch (default: same as --cpu-mask)",
-        [](gpt_params & params, const std::string & value) {
-            std::string mask = value;
+        [](gpt_params & params, const std::string & mask) {
             params.cpuparams_batch.mask_valid = true;
             if (!parse_cpu_mask(mask, params.cpuparams_batch.cpumask)) {
                 throw std::invalid_argument("invalid cpumask");
@@ -841,8 +841,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
     add_opt(llama_arg(
         {"-Crb", "--cpu-range-batch"}, "lo-hi",
         "ranges of CPUs for affinity. Complements --cpu-mask-batch",
-        [](gpt_params & params, const std::string & value) {
-            std::string range = value;
+        [](gpt_params & params, const std::string & range) {
             params.cpuparams_batch.mask_valid = true;
             if (!parse_cpu_range(range, params.cpuparams_batch.cpumask)) {
                 throw std::invalid_argument("invalid range");
@@ -857,6 +856,16 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         }
     ));
     add_opt(llama_arg(
+        {"--prio-batch"}, "N",
+        format("set process/thread priority : 0-normal, 1-medium, 2-high, 3-realtime (default: %d)\n", params.cpuparams_batch.priority),
+        [](gpt_params & params, int prio) {
+            if (prio < 0 || prio > 3) {
+                throw std::invalid_argument("invalid value");
+            }
+            params.cpuparams_batch.priority = (enum ggml_sched_priority) prio;
+        }
+    ));
+    add_opt(llama_arg(
         {"--poll-batch"}, "<0|1>",
         "use polling to wait for work (default: same as --poll)",
         [](gpt_params & params, int value) {
@@ -866,8 +875,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
     add_opt(llama_arg(
         {"-Cd", "--cpu-mask-draft"}, "M",
         "Draft model CPU affinity mask. Complements cpu-range-draft (default: same as --cpu-mask)",
-        [](gpt_params & params, const std::string & value) {
-            std::string mask = value;
+        [](gpt_params & params, const std::string & mask) {
             params.draft_cpuparams.mask_valid = true;
             if (!parse_cpu_mask(mask, params.draft_cpuparams.cpumask)) {
                 throw std::invalid_argument("invalid cpumask");
@@ -877,8 +885,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
     add_opt(llama_arg(
         {"-Crd", "--cpu-range-draft"}, "lo-hi",
         "Ranges of CPUs for affinity. Complements --cpu-mask-draft",
-        [](gpt_params & params, const std::string & value) {
-            std::string range = value;
+        [](gpt_params & params, const std::string & range) {
             params.draft_cpuparams.mask_valid = true;
             if (!parse_cpu_range(range, params.draft_cpuparams.cpumask)) {
                 throw std::invalid_argument("invalid range");
@@ -893,6 +900,16 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         }
     ).set_examples({LLAMA_EXAMPLE_SPECULATIVE}));
     add_opt(llama_arg(
+        {"--prio-draft"}, "N",
+        format("set draft process/thread priority : 0-normal, 1-medium, 2-high, 3-realtime (default: %d)\n", params.draft_cpuparams.priority),
+        [](gpt_params & params, int prio) {
+            if (prio < 0 || prio > 3) {
+                throw std::invalid_argument("invalid value");
+            }
+            params.draft_cpuparams.priority = (enum ggml_sched_priority) prio;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SPECULATIVE}));
+    add_opt(llama_arg(
         {"--poll-draft"}, "<0|1>",
         "Use polling to wait for draft model work (default: same as --poll])",
         [](gpt_params & params, int value) {
@@ -900,10 +917,19 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         }
     ).set_examples({LLAMA_EXAMPLE_SPECULATIVE}));
     add_opt(llama_arg(
+        {"-Cbd", "--cpu-mask-batch-draft"}, "M",
+        "Draft model CPU affinity mask. Complements cpu-range-draft (default: same as --cpu-mask)",
+        [](gpt_params & params, const std::string & mask) {
+            params.draft_cpuparams_batch.mask_valid = true;
+            if (!parse_cpu_mask(mask, params.draft_cpuparams_batch.cpumask)) {
+                throw std::invalid_argument("invalid cpumask");
+            }
+        }
+    ).set_examples({LLAMA_EXAMPLE_SPECULATIVE}));
+    add_opt(llama_arg(
         {"-Crbd", "--cpu-range-batch-draft"}, "lo-hi",
         "Ranges of CPUs for affinity. Complements --cpu-mask-draft-batch)",
-        [](gpt_params & params, const std::string & value) {
-            std::string range = value;
+        [](gpt_params & params, const std::string & range) {
             params.draft_cpuparams_batch.mask_valid = true;
             if (!parse_cpu_range(range, params.draft_cpuparams_batch.cpumask)) {
                 throw std::invalid_argument("invalid cpumask");
@@ -915,6 +941,16 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         "Use strict CPU placement for draft model (default: --cpu-strict-draft)",
         [](gpt_params & params, int value) {
             params.draft_cpuparams_batch.strict_cpu = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_SPECULATIVE}));
+    add_opt(llama_arg(
+        {"--prio-batch-draft"}, "N",
+        format("set draft process/thread priority : 0-normal, 1-medium, 2-high, 3-realtime (default: %d)\n", params.draft_cpuparams_batch.priority),
+        [](gpt_params & params, int prio) {
+            if (prio < 0 || prio > 3) {
+                throw std::invalid_argument("invalid value");
+            }
+            params.draft_cpuparams_batch.priority = (enum ggml_sched_priority) prio;
         }
     ).set_examples({LLAMA_EXAMPLE_SPECULATIVE}));
     add_opt(llama_arg(
@@ -1128,21 +1164,21 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         [](gpt_params & params) {
             params.interactive = true;
         }
-    ).set_examples({LLAMA_EXAMPLE_INFILL}));
+    ).set_examples({LLAMA_EXAMPLE_MAIN}));
     add_opt(llama_arg(
         {"-if", "--interactive-first"},
         format("run in interactive mode and wait for input right away (default: %s)", params.interactive_first ? "true" : "false"),
         [](gpt_params & params) {
             params.interactive_first = true;
         }
-    ).set_examples({LLAMA_EXAMPLE_INFILL}));
+    ).set_examples({LLAMA_EXAMPLE_MAIN}));
     add_opt(llama_arg(
         {"-mli", "--multiline-input"},
         "allows you to write or paste multiple lines without ending each in '\\'",
         [](gpt_params & params) {
             params.multiline_input = true;
         }
-    ).set_examples({LLAMA_EXAMPLE_INFILL}));
+    ).set_examples({LLAMA_EXAMPLE_MAIN}));
     add_opt(llama_arg(
         {"--in-prefix-bos"},
         "prefix BOS to user inputs, preceding the `--in-prefix` string",
@@ -1150,7 +1186,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
             params.input_prefix_bos = true;
             params.enable_chat_template = false;
         }
-    ).set_examples({LLAMA_EXAMPLE_INFILL}));
+    ).set_examples({LLAMA_EXAMPLE_MAIN}));
     add_opt(llama_arg(
         {"--in-prefix"}, "STRING",
         "string to prefix user inputs with (default: empty)",
@@ -1158,7 +1194,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
             params.input_prefix = value;
             params.enable_chat_template = false;
         }
-    ).set_examples({LLAMA_EXAMPLE_INFILL}));
+    ).set_examples({LLAMA_EXAMPLE_MAIN}));
     add_opt(llama_arg(
         {"--in-suffix"}, "STRING",
         "string to suffix after user inputs with (default: empty)",
@@ -1166,7 +1202,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
             params.input_suffix = value;
             params.enable_chat_template = false;
         }
-    ).set_examples({LLAMA_EXAMPLE_INFILL}));
+    ).set_examples({LLAMA_EXAMPLE_MAIN}));
     add_opt(llama_arg(
         {"--no-warmup"},
         "skip warming up the model with an empty run",
@@ -1503,7 +1539,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         }
     ));
     add_opt(llama_arg(
-        {"--all-logits"},
+        {"--perplexity", "--all-logits"},
         format("return logits for all tokens in the batch (default: %s)", params.logits_all ? "true" : "false"),
         [](gpt_params & params) {
             params.logits_all = true;
@@ -1556,6 +1592,13 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         "computes KL-divergence to logits provided via --kl-divergence-base",
         [](gpt_params & params) {
             params.kl_divergence = true;
+        }
+    ).set_examples({LLAMA_EXAMPLE_PERPLEXITY}));
+    add_opt(llama_arg(
+        {"--save-all-logits", "--kl-divergence-base"}, "FNAME",
+        "set logits file",
+        [](gpt_params & params, const std::string & value) {
+            params.logits_file = value;
         }
     ).set_examples({LLAMA_EXAMPLE_PERPLEXITY}));
     add_opt(llama_arg(
@@ -1660,7 +1703,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         }
     ));
     add_opt(llama_arg(
-        {"-ngl", "--gpu-layers"}, "N",
+        {"-ngl", "--gpu-layers", "--n-gpu-layers"}, "N",
         "number of layers to store in VRAM",
         [](gpt_params & params, int value) {
             params.n_gpu_layers = value;
@@ -1671,7 +1714,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         }
     ).set_env("LLAMA_ARG_N_GPU_LAYERS"));
     add_opt(llama_arg(
-        {"-ngld", "--gpu-layers-draft"}, "N",
+        {"-ngld", "--gpu-layers-draft", "--n-gpu-layers-draft"}, "N",
         "number of layers to store in VRAM for the draft model",
         [](gpt_params & params, int value) {
             params.n_gpu_layers_draft = value;
@@ -1806,7 +1849,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         [](gpt_params & params, const std::string & value) {
             params.model_alias = value;
         }
-    ).set_examples({LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MODEL"));
+    ).set_examples({LLAMA_EXAMPLE_SERVER}));
     add_opt(llama_arg(
         {"-m", "--model"}, "FNAME",
         ex == LLAMA_EXAMPLE_EXPORT_LORA
@@ -1894,7 +1937,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         }
     ).set_examples({LLAMA_EXAMPLE_PASSKEY}));
     add_opt(llama_arg(
-        {"-o", "--output"}, "FNAME",
+        {"-o", "--output", "--output-file"}, "FNAME",
         format("output file (default: '%s')",
             ex == LLAMA_EXAMPLE_EXPORT_LORA
                 ? params.lora_outfile.c_str()
@@ -1936,7 +1979,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         }
     ).set_examples({LLAMA_EXAMPLE_IMATRIX}));
     add_opt(llama_arg(
-        {"--chunk"}, "N",
+        {"--chunk", "--from-chunk"}, "N",
         format("start processing the input from chunk N (default: %d)", params.i_chunk),
         [](gpt_params & params, int value) {
             params.i_chunk = value;
@@ -2061,7 +2104,7 @@ std::vector<llama_arg> gpt_params_parser_init(gpt_params & params, llama_example
         }
     ).set_examples({LLAMA_EXAMPLE_SERVER}));
     add_opt(llama_arg(
-        {"--timeout"}, "N",
+        {"-to", "--timeout"}, "N",
         format("server read/write timeout in seconds (default: %d)", params.timeout_read),
         [](gpt_params & params, int value) {
             params.timeout_read  = value;
