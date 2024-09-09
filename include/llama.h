@@ -1074,7 +1074,7 @@ extern "C" {
     /// @details Minimum P sampling as described in https://github.com/ggerganov/llama.cpp/pull/3841
     LLAMA_API struct llama_sampler * llama_sampler_init_min_p      (float   p, size_t min_keep);
 
-    /// @details XTC sampling
+    /// @details XTC sampling as described in https://github.com/oobabooga/text-generation-webui/pull/6335
     LLAMA_API struct llama_sampler * llama_sampler_init_xtc        (float xtc_p, float xtc_t, size_t min_keep, uint32_t seed);
 
     /// @details Tail Free Sampling described in https://www.trentonbricken.com/Tail-Free-Sampling/.
