@@ -1,11 +1,13 @@
+#include "arg.h"
 #include "common.h"
+#include "sampling.h"
 #include "llama.h"
 
-#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
 #include <set>
+#include <random>
 
 #define SPEC_VOCAB_MAX_SIZE_DIFFERENCE  100
 #define SPEC_VOCAB_CHECK_START_TOKEN_ID 5
@@ -27,8 +29,7 @@ struct seq_draft {
 int main(int argc, char ** argv) {
     gpt_params params;
 
-    auto options = gpt_params_parser_init(params, LLAMA_EXAMPLE_SPECULATIVE);
-    if (!gpt_params_parse(argc, argv, params, options)) {
+    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_SPECULATIVE)) {
         return 1;
     }
 
@@ -615,7 +616,7 @@ int main(int argc, char ** argv) {
 
     LOG_TEE("\ndraft:\n\n");
     // TODO: print sampling/grammar timings for all drafts
-    llama_perf_print(ctx_dft, LLAMA_PERF_TYPE_CONTEXT);
+    llama_perf_context_print(ctx_dft);
 
     LOG_TEE("\ntarget:\n\n");
     gpt_perf_print(ctx_tgt, smpl);

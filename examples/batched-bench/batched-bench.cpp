@@ -1,32 +1,11 @@
+#include "arg.h"
 #include "common.h"
 #include "llama.h"
 
 #include <algorithm>
-#include <cmath>
 #include <cstdio>
 #include <string>
 #include <vector>
-
-// mutates the input string
-static std::vector<int> parse_list(char * p) {
-    std::vector<int> ret;
-
-    char * q = p;
-
-    while (*p) {
-        if (*p == ',') {
-            *p = '\0';
-            ret.push_back(std::atoi(q));
-            q = p + 1;
-        }
-
-        ++p;
-    }
-
-    ret.push_back(std::atoi(q));
-
-    return ret;
-}
 
 static void print_usage(int, char ** argv) {
     LOG_TEE("\nexample usage:\n");
@@ -37,8 +16,7 @@ static void print_usage(int, char ** argv) {
 int main(int argc, char ** argv) {
     gpt_params params;
 
-    auto options = gpt_params_parser_init(params, LLAMA_EXAMPLE_BENCH, print_usage);
-    if (!gpt_params_parse(argc, argv, params, options)) {
+    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_BENCH, print_usage)) {
         return 1;
     }
 
@@ -209,7 +187,7 @@ int main(int argc, char ** argv) {
     }
 
     LOG_TEE("\n");
-    llama_perf_print(ctx, LLAMA_PERF_TYPE_CONTEXT);
+    llama_perf_context_print(ctx);
 
     llama_batch_free(batch);
 

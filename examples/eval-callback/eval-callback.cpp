@@ -1,3 +1,4 @@
+#include "arg.h"
 #include "common.h"
 #include "llama.h"
 #include "ggml.h"
@@ -144,8 +145,7 @@ int main(int argc, char ** argv) {
 
     gpt_params params;
 
-    auto options = gpt_params_parser_init(params, LLAMA_EXAMPLE_COMMON);
-    if (!gpt_params_parse(argc, argv, params, options)) {
+    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_COMMON)) {
         return 1;
     }
 
@@ -182,7 +182,7 @@ int main(int argc, char ** argv) {
     }
 
     LOG_TEE("\n");
-    llama_perf_print(ctx, LLAMA_PERF_TYPE_CONTEXT);
+    llama_perf_context_print(ctx);
 
     llama_free(ctx);
     llama_free_model(model);

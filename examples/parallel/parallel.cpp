@@ -1,7 +1,9 @@
 // A basic application simulating a server with multiple clients.
 // The clients submit requests to the server and they are processed in parallel.
 
+#include "arg.h"
 #include "common.h"
+#include "sampling.h"
 #include "llama.h"
 
 #include <cmath>
@@ -100,8 +102,7 @@ int main(int argc, char ** argv) {
 
     gpt_params params;
 
-    auto options = gpt_params_parser_init(params, LLAMA_EXAMPLE_COMMON);
-    if (!gpt_params_parse(argc, argv, params, options)) {
+    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_PARALLEL)) {
         return 1;
     }
 
@@ -414,7 +415,7 @@ int main(int argc, char ** argv) {
     LOG_TEE("\n");
 
     // TODO: print sampling/grammar timings for all clients
-    llama_perf_print(ctx, LLAMA_PERF_TYPE_CONTEXT);
+    llama_perf_context_print(ctx);
 
     llama_batch_free(batch);
 
