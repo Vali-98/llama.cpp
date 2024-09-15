@@ -1,3 +1,4 @@
+#include "arg.h"
 #include "common.h"
 #include "llama.h"
 
@@ -19,8 +20,7 @@ int main(int argc, char ** argv) {
     params.n_keep = 32;
     params.i_pos  = -1;
 
-    auto options = gpt_params_parser_init(params, LLAMA_EXAMPLE_PASSKEY, print_usage);
-    if (!gpt_params_parse(argc, argv, params, options)) {
+    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_PASSKEY, print_usage)) {
         return 1;
     }
 
@@ -220,8 +220,6 @@ int main(int argc, char ** argv) {
         {
             const llama_token new_token_id = llama_sampler_sample(smpl, ctx, batch.n_tokens - 1);
 
-            llama_sampler_accept(smpl, new_token_id);
-
             // is it an end of generation?
             if (llama_token_is_eog(model, new_token_id) || n_cur == n_len) {
                 LOG_TEE("\n");
@@ -258,7 +256,7 @@ int main(int argc, char ** argv) {
             __func__, n_decode, (t_main_end - t_main_start) / 1000000.0f, n_decode / ((t_main_end - t_main_start) / 1000000.0f));
 
     LOG_TEE("\n");
-    llama_perf_print(ctx, LLAMA_PERF_TYPE_CONTEXT);
+    llama_perf_context_print(ctx);
 
     fprintf(stderr, "\n");
 

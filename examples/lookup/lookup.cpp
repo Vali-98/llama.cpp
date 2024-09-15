@@ -1,7 +1,9 @@
+#include "arg.h"
 #include "ggml.h"
-#include "llama.h"
 #include "common.h"
 #include "ngram-cache.h"
+#include "sampling.h"
+#include "llama.h"
 
 #include <cstdint>
 #include <cstdio>
@@ -12,8 +14,7 @@
 int main(int argc, char ** argv){
     gpt_params params;
 
-    auto options = gpt_params_parser_init(params, LLAMA_EXAMPLE_COMMON);
-    if (!gpt_params_parse(argc, argv, params, options)) {
+    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_LOOKUP)) {
         return 1;
     }
 
@@ -239,8 +240,7 @@ int main(int argc, char ** argv){
     LOG_TEE("accept       = %.3f%%\n", 100.0f * n_accept / n_drafted);
 
     LOG_TEE("\ntarget:\n\n");
-    llama_perf_print(smpl, LLAMA_PERF_TYPE_SAMPLER_CHAIN);
-    llama_perf_print(ctx,  LLAMA_PERF_TYPE_CONTEXT);
+    gpt_perf_print(ctx, smpl);
 
     gpt_sampler_free(smpl);
 

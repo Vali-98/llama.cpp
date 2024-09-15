@@ -1,6 +1,8 @@
 #include "utils.hpp"
 
+#include "arg.h"
 #include "common.h"
+#include "sampling.h"
 #include "json-schema-to-grammar.h"
 #include "llama.h"
 
@@ -26,6 +28,7 @@
 #include "system-prompts.js.hpp"
 #include "prompt-formats.js.hpp"
 #include "json-schema-to-grammar.mjs.hpp"
+#include "loading.html.hpp"
 
 #include <atomic>
 #include <chrono>
@@ -613,7 +616,7 @@ struct server_context {
 
     gpt_params params;
 
-    llama_batch batch;
+    llama_batch batch = {};
 
     bool clean_kv_cache = true;
     bool add_bos_token  = true;
@@ -1264,6 +1267,7 @@ struct server_context {
             {"n_predict",                 slot.n_predict},     // Server configured n_predict
             {"model",                     params.model_alias},
             {"seed",                      slot.sparams.seed},
+            {"seed_cur",                  slot.smpl ? gpt_sampler_get_seed(slot.smpl) : 0},
             {"temperature",               slot.sparams.temp},
             {"dynatemp_range",            slot.sparams.dynatemp_range},
             {"dynatemp_exponent",         slot.sparams.dynatemp_exponent},
@@ -2423,8 +2427,7 @@ int main(int argc, char ** argv) {
     // own arguments required by this example
     gpt_params params;
 
-    auto options = gpt_params_parser_init(params, LLAMA_EXAMPLE_SERVER);
-    if (!gpt_params_parse(argc, argv, params, options)) {
+    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_SERVER)) {
         return 1;
     }
 
@@ -2590,10 +2593,16 @@ int main(int argc, char ** argv) {
         return false;
     };
 
-    auto middleware_server_state = [&res_error, &state](const httplib::Request &, httplib::Response & res) {
+    auto middleware_server_state = [&res_error, &state](const httplib::Request & req, httplib::Response & res) {
         server_state current_state = state.load();
         if (current_state == SERVER_STATE_LOADING_MODEL) {
-            res_error(res, format_error_response("Loading model", ERROR_TYPE_UNAVAILABLE));
+            auto tmp = string_split(req.path, '.');
+            if (req.path == "/" || tmp.back() == "html") {
+                res.set_content(reinterpret_cast<const char*>(loading_html), loading_html_len, "text/html; charset=utf-8");
+                res.status = 503;
+            } else {
+                res_error(res, format_error_response("Loading model", ERROR_TYPE_UNAVAILABLE));
+            }
             return false;
         }
         return true;
@@ -2984,6 +2993,8 @@ int main(int argc, char ** argv) {
                 }, [&](json error_data) {
                     server_sent_event(sink, "error", error_data);
                 });
+                static const std::string ev_done = "data: [DONE]\n\n";
+                sink.write(ev_done.data(), ev_done.size());
                 sink.done();
                 return true;
             };
@@ -3011,12 +3022,39 @@ int main(int argc, char ** argv) {
     const auto handle_tokenize = [&ctx_server, &res_ok](const httplib::Request & req, httplib::Response & res) {
         const json body = json::parse(req.body);
 
-        std::vector<llama_token> tokens;
+        json tokens_response = json::array();
         if (body.count("content") != 0) {
             const bool add_special = json_value(body, "add_special", false);
-            tokens = ctx_server.tokenize(body.at("content"), add_special);
+            const bool with_pieces = json_value(body, "with_pieces", false);
+            std::vector<llama_token> tokens = ctx_server.tokenize(body.at("content"), add_special);
+
+            if (with_pieces) {
+                for (const auto& token : tokens) {
+                    std::string piece = llama_token_to_piece(ctx_server.ctx, token);
+                    json piece_json;
+
+                    // Check if the piece is valid UTF-8
+                    if (is_valid_utf8(piece)) {
+                        piece_json = piece;
+                    } else {
+                        // If not valid UTF-8, store as array of byte values
+                        piece_json = json::array();
+                        for (unsigned char c : piece) {
+                            piece_json.push_back(static_cast<int>(c));
+                        }
+                    }
+
+                    tokens_response.push_back({
+                        {"id", token},
+                        {"piece", piece_json}
+                    });
+                }
+            } else {
+                tokens_response = tokens;
+            }
         }
-        const json data = format_tokenizer_response(tokens);
+
+        const json data = format_tokenizer_response(tokens_response);
         res_ok(res, data);
     };
 

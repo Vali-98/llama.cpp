@@ -434,7 +434,7 @@ endif
 # TODO: probably these flags need to be tweaked on some architectures
 #       feel free to update the Makefile for your architecture and send a pull request or issue
 
-ifndef RISCV
+ifndef RISCV_CROSS_COMPILE
 
 ifeq ($(UNAME_M),$(filter $(UNAME_M),x86_64 i686 amd64))
 	# Use all CPU extensions that are available:
@@ -514,7 +514,12 @@ ifneq ($(filter loongarch64%,$(UNAME_M)),)
 	MK_CXXFLAGS += -mlasx
 endif
 
-else
+ifneq ($(filter riscv64%,$(UNAME_M)),)
+	MK_CFLAGS   += -march=rv64gcv -mabi=lp64d
+	MK_CXXFLAGS += -march=rv64gcv -mabi=lp64d
+endif
+
+else # RISC-V CROSS COMPILATION
 	MK_CFLAGS   += -march=rv64gcv -mabi=lp64d
 	MK_CXXFLAGS += -march=rv64gcv -mabi=lp64d
 endif
@@ -925,6 +930,7 @@ OBJ_LLAMA = \
 
 OBJ_COMMON = \
 	common/common.o \
+	common/arg.o \
 	common/console.o \
 	common/ngram-cache.o \
 	common/sampling.o \
@@ -1155,6 +1161,11 @@ common/common.o: \
 	common/json.hpp \
 	common/json-schema-to-grammar.h \
 	include/llama.h
+	$(CXX) $(CXXFLAGS) -c $< -o $@
+
+common/arg.o: \
+	common/arg.cpp \
+	common/arg.h
 	$(CXX) $(CXXFLAGS) -c $< -o $@
 
 common/sampling.o: \
@@ -1429,6 +1440,7 @@ llama-server: \
 	examples/server/system-prompts.js.hpp \
 	examples/server/prompt-formats.js.hpp \
 	examples/server/json-schema-to-grammar.mjs.hpp \
+	examples/server/loading.html.hpp \
 	common/json.hpp \
 	common/stb_image.h \
 	$(OBJ_ALL)
@@ -1448,7 +1460,6 @@ llama-gen-docs: examples/gen-docs/gen-docs.cpp \
 	$(OBJ_ALL)
 	$(CXX) $(CXXFLAGS) -c $< -o $(call GET_OBJ_FILE, $<)
 	$(CXX) $(CXXFLAGS) $(filter-out %.h $<,$^) $(call GET_OBJ_FILE, $<) -o $@ $(LDFLAGS)
-	./llama-gen-docs
 
 libllava.a: examples/llava/llava.cpp \
 	examples/llava/llava.h \

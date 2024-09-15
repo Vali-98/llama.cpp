@@ -1,9 +1,11 @@
-#include "ggml.h"
+#include "arg.h"
 #include "log.h"
 #include "common.h"
+#include "sampling.h"
 #include "clip.h"
 #include "llava.h"
 #include "llama.h"
+#include "ggml.h"
 
 #include <cstdio>
 #include <cstdlib>
@@ -16,8 +18,8 @@ struct llava_context {
 };
 
 static void show_additional_info(int /*argc*/, char ** argv) {
-    LOG_TEE("\n example usage: %s -m <llava-v1.5-7b/ggml-model-q5_k.gguf> --mmproj <llava-v1.5-7b/mmproj-model-f16.gguf> --image <path/to/an/image.jpg> --image <path/to/another/image.jpg> [--temp 0.1] [-p \"describe the image in detail.\"]\n", argv[0]);
-    LOG_TEE("  note: a lower temperature value like 0.1 is recommended for better quality.\n");
+    LOG_TEE("\nexample usage:\n\n%s -m <llava-v1.5-7b/ggml-model-q5_k.gguf> --mmproj <llava-v1.5-7b/mmproj-model-f16.gguf> --image <path/to/an/image.jpg> --image <path/to/another/image.jpg> [--temp 0.1] [-p \"describe the image in detail.\"]\n", argv[0]);
+    LOG_TEE("\nnote: a lower temperature value like 0.1 is recommended for better quality.\n");
 }
 
 static void llama_log_callback_logTee(ggml_log_level level, const char * text, void * user_data) {
@@ -253,8 +255,7 @@ int main(int argc, char ** argv) {
 
     gpt_params params;
 
-    auto options = gpt_params_parser_init(params, LLAMA_EXAMPLE_COMMON, show_additional_info);
-    if (!gpt_params_parse(argc, argv, params, options)) {
+    if (!gpt_params_parse(argc, argv, params, LLAMA_EXAMPLE_LLAVA, show_additional_info)) {
         return 1;
     }
 
@@ -318,7 +319,7 @@ int main(int argc, char ** argv) {
             }
         }
         printf("\n");
-        llama_perf_print(ctx_llava->ctx_llama, LLAMA_PERF_TYPE_CONTEXT);
+        llama_perf_context_print(ctx_llava->ctx_llama);
 
         ctx_llava->model = NULL;
         llava_free(ctx_llava);
