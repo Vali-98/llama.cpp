@@ -71,12 +71,19 @@ void gpt_log_set_timestamps(struct gpt_log * log,       bool   timestamps); // w
 
 
 
-#if defined(__ANDROID__) && defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
+#if defined(__ANDROID__)
 #include <android/log.h>
 #define LLAMA_ANDROID_LOG_TAG "RNLLAMA_LOG_ANDROID"
+
+#if defined(RNLLAMA_ANDROID_ENABLE_LOGGING)
+#define RNLLAMA_LOG_LEVEL 1
+#else
+#define RNLLAMA_LOG_LEVEL 0
+#endif
+
 #define LOG_TMPL(level, verbosity, ...) \
     do { \
-        if ((verbosity) <= gpt_log_verbosity_thold) { \
+        if ((verbosity) <= RNLLAMA_LOG_LEVEL) { \
             int android_log_level = ANDROID_LOG_DEFAULT; \
             switch (level) { \
                 case GGML_LOG_LEVEL_INFO:  android_log_level = ANDROID_LOG_INFO; break; \
