@@ -20815,19 +20815,3 @@ void llama_log_callback_default(ggml_log_level level, const char * text, void * 
     fflush(stderr);
 }
 
-struct llama_token_timings llama_get_token_timings(const void * v_ctx) {
-    const auto * ctx = (llama_context *) v_ctx;
-    struct llama_token_timings result = {
-        /*.t_start_ms  =*/ 1e-3 * ctx->t_start_us,
-        /*.t_end_ms    =*/ 1.00 * ggml_time_ms(),
-        /*.t_load_ms   =*/ 1e-3 * ctx->t_load_us,
-        /*.t_p_eval_ms =*/ 1e-3 * ctx->t_p_eval_us,
-        /*.t_eval_ms   =*/ 1e-3 * ctx->t_eval_us,
-
-        /*.n_p_eval =*/ std::max(0, ctx->n_p_eval),
-        /*.n_eval   =*/ std::max(1, ctx->n_eval),
-    };
-    
-    return result;
-}
-
