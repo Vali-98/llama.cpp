@@ -84,7 +84,7 @@ void gpt_log_set_timestamps(struct gpt_log * log,       bool   timestamps); // w
                 case GGML_LOG_LEVEL_ERROR: android_log_level = ANDROID_LOG_ERROR; break; \
                 default:             android_log_level = ANDROID_LOG_DEFAULT; \
             } \
-            __android_log_print(android_log_level, LLAMA_ANDROID_LOG_TAG, __VA_ARGS__) \
+            __android_log_print(android_log_level, LLAMA_ANDROID_LOG_TAG, __VA_ARGS__); \
         } \
     } while(0)
 #else
