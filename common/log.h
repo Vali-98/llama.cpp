@@ -79,9 +79,9 @@ void gpt_log_set_timestamps(struct gpt_log * log,       bool   timestamps); // w
         if ((verbosity) <= gpt_log_verbosity_thold) { \
             int android_log_level = ANDROID_LOG_DEFAULT; \
             switch (level) { \
-                case GGML_LOG_INFO:  android_log_level = ANDROID_LOG_INFO; break; \
-                case GGML_LOG_WARN:  android_log_level = ANDROID_LOG_WARN; break; \
-                case GGML_LOG_ERROR: android_log_level = ANDROID_LOG_ERROR; break; \
+                case GGML_LOG_LEVEL_INFO:  android_log_level = ANDROID_LOG_INFO; break; \
+                case GGML_LOG_LEVEL_WARN:  android_log_level = ANDROID_LOG_WARN; break; \
+                case GGML_LOG_LEVEL_ERROR: android_log_level = ANDROID_LOG_ERROR; break; \
                 default:             android_log_level = ANDROID_LOG_DEFAULT; \
             } \
             __android_log_print(android_log_level, LLAMA_ANDROID_LOG_TAG, __VA_ARGS__) \
