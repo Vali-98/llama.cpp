@@ -955,6 +955,7 @@ struct llama_model_params llama_model_params_from_gpt_params(const gpt_params & 
         mparams.n_gpu_layers = params.n_gpu_layers;
     }
     
+    mparams.progress_callback_user_data = params.progress_callback_user_data;
     mparams.progress_callback = params.progress_callback;
     mparams.vocab_only      = params.vocab_only;
     mparams.rpc_servers     = params.rpc_servers.c_str();
