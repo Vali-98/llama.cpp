@@ -531,24 +531,36 @@ struct server_response {
 
     // add the id_task to the list of tasks waiting for response
     void add_waiting_task_id(int id_task) {
-        SRV_DBG("waiting for task id = %d\n", id_task);
+        SRV_DBG("add task %d to waiting list. current waiting = %d (before add)\n", id_task, (int) waiting_task_ids.size());
 
         std::unique_lock<std::mutex> lock(mutex_results);
         waiting_task_ids.insert(id_task);
     }
 
     void add_waiting_tasks(const std::vector<server_task> & tasks) {
-        for (const auto & t : tasks) {
-            add_waiting_task_id(t.id);
+        std::unique_lock<std::mutex> lock(mutex_results);
+
+        for (const auto & task : tasks) {
+            SRV_DBG("add task %d to waiting list. current waiting = %d (before add)\n", task.id, (int) waiting_task_ids.size());
+            waiting_task_ids.insert(task.id);
         }
     }
 
     // when the request is finished, we can remove task associated with it
     void remove_waiting_task_id(int id_task) {
-        SRV_DBG("task id = %d is done\n", id_task);
+        SRV_DBG("remove task %d from waiting list. current waiting = %d (before remove)\n", id_task, (int) waiting_task_ids.size());
 
         std::unique_lock<std::mutex> lock(mutex_results);
         waiting_task_ids.erase(id_task);
+    }
+
+    void remove_waiting_task_ids(const std::unordered_set<int> & id_tasks) {
+        std::unique_lock<std::mutex> lock(mutex_results);
+
+        for (const auto & id_task : id_tasks) {
+            SRV_DBG("remove task %d from waiting list. current waiting = %d (before remove)\n", id_task, (int) waiting_task_ids.size());
+            waiting_task_ids.erase(id_task);
+        }
     }
 
     // This function blocks the thread until there is a response for one of the id_tasks
@@ -1168,6 +1180,15 @@ struct server_context {
             SLT_DBG(slot, "stopped by limit, n_decoded = %d, n_predict = %d\n", slot.n_decoded, slot.params.n_predict);
         }
 
+        // if context shift is disabled, we stop when it reaches the context limit
+        if (slot.n_decoded >= slot.n_ctx) {
+            slot.truncated      = true;
+            slot.stopped_limit  = true;
+            slot.has_next_token = false;
+
+            SLT_DBG(slot, "stopped due to running out of context capacity, n_decoded = %d, n_ctx = %d\n", slot.n_decoded, slot.n_ctx);
+        }
+
         if (llama_token_is_eog(model, result.tok)) {
             slot.stopped_eos    = true;
             slot.has_next_token = false;
@@ -1468,7 +1489,7 @@ struct server_context {
             if (result.error) {
                 error_handler(result.data);
                 cancel_tasks(id_tasks);
-                break;
+                return;
             }
 
             size_t idx = result.data["index"];
@@ -1815,6 +1836,14 @@ struct server_context {
         for (server_slot & slot : slots) {
             if (slot.ga_n == 1) {
                 if (slot.is_processing() && (int) system_tokens.size() + slot.n_past >= slot.n_ctx - 1) {
+                    if (!params.ctx_shift) {
+                        // this check is redundant (for good)
+                        // we should never get here, because generation should already stopped in process_token()
+                        slot.release();
+                        send_error(slot, "context shift is disabled", ERROR_TYPE_SERVER);
+                        continue;
+                    }
+
                     // Shift context
                     const int n_keep    = slot.params.n_keep + add_bos_token;
                     const int n_left    = (int) system_tokens.size() + slot.n_past - n_keep;
@@ -1949,6 +1978,14 @@ struct server_context {
                                 continue;
                             }
                         } else {
+                            if (!params.ctx_shift) {
+                                // if context shift is disabled, we make sure prompt size is smaller than KV size
+                                if ((int) system_tokens.size() + slot.n_prompt_tokens >= slot.n_ctx) {
+                                    slot.release();
+                                    send_error(slot, "the request exceeds the available context size. try increasing the context size or enable context shift", ERROR_TYPE_INVALID_REQUEST);
+                                    continue;
+                                }
+                            }
                             if (slot.params.n_keep < 0) {
                                 slot.params.n_keep = slot.n_prompt_tokens;
                             }
@@ -2319,6 +2356,10 @@ int main(int argc, char ** argv) {
         svr.reset(new httplib::Server());
     }
 #else
+    if (params.ssl_file_key != "" && params.ssl_file_cert != "") {
+        LOG_ERR("Server is built without SSL support\n");
+        return 1;
+    }
     svr.reset(new httplib::Server());
 #endif
 
@@ -2774,6 +2815,8 @@ int main(int argc, char ** argv) {
             }, [&](const json & error_data) {
                 res_error(res, error_data);
             });
+
+            ctx_server.queue_results.remove_waiting_task_ids(task_ids);
         } else {
             const auto chunked_content_provider = [task_ids, &ctx_server](size_t, httplib::DataSink & sink) {
                 ctx_server.receive_cmpl_results_stream(task_ids, [&](const server_task_result & result) -> bool {
@@ -2784,7 +2827,12 @@ int main(int argc, char ** argv) {
                 sink.done();
                 return false;
             };
-            res.set_chunked_content_provider("text/event-stream", chunked_content_provider);
+
+            auto on_complete = [task_ids, &ctx_server] (bool) {
+                ctx_server.queue_results.remove_waiting_task_ids(task_ids);
+            };
+
+            res.set_chunked_content_provider("text/event-stream", chunked_content_provider, on_complete);
         }
     };
 
@@ -2823,6 +2871,8 @@ int main(int argc, char ** argv) {
             }, [&](const json & error_data) {
                 res_error(res, error_data);
             });
+
+            ctx_server.queue_results.remove_waiting_task_ids(task_ids);
         } else {
             const auto chunked_content_provider = [task_ids, &ctx_server, completion_id](size_t, httplib::DataSink & sink) {
                 ctx_server.receive_cmpl_results_stream(task_ids, [&](const server_task_result & result) -> bool {
@@ -2844,7 +2894,12 @@ int main(int argc, char ** argv) {
                 sink.done();
                 return true;
             };
-            res.set_chunked_content_provider("text/event-stream", chunked_content_provider);
+
+            auto on_complete = [task_ids, &ctx_server] (bool) {
+                ctx_server.queue_results.remove_waiting_task_ids(task_ids);
+            };
+
+            res.set_chunked_content_provider("text/event-stream", chunked_content_provider, on_complete);
         }
     };
 
@@ -2953,6 +3008,8 @@ int main(int argc, char ** argv) {
                 res_error(res, error_data);
                 error = true;
             });
+
+            ctx_server.queue_results.remove_waiting_task_ids(task_ids);
         }
 
         if (error) {
@@ -3126,7 +3183,7 @@ int main(int argc, char ** argv) {
     }
 
     // print sample chat example to make it clear which template is used
-    LOG_INF("%s: chat template, built_in: %d, chat_example: '%s\n'", __func__, params.chat_template.empty(), llama_chat_format_example(ctx_server.model, params.chat_template).c_str());
+    LOG_INF("%s: chat template, built_in: %d, chat_example: '%s'\n", __func__, params.chat_template.empty(), llama_chat_format_example(ctx_server.model, params.chat_template).c_str());
 
     ctx_server.queue_tasks.on_new_task(std::bind(
                 &server_context::process_single_task, &ctx_server, std::placeholders::_1));
