@@ -704,6 +704,19 @@ FILE * ggml_fopen(const char * fname, const char * mode) {
     }
 
     return file;
+#elif defined(RNLLAMA_USE_FD_FILE)
+    // [RNLLAMA] VERY UNSAFE, ASSUMES GIVEN fname is FileDescriptor id
+    
+    if (strchr(fname, '/') == NULL) {
+        char *endptr;
+        long num = strtol(fname, &endptr, 10);
+        FILE *file = fdopen(dup(num), mode);
+
+        if (file != NULL) {
+            return file;
+        } 
+    }
+    return fopen(fname, mode);
 #else
     return fopen(fname, mode);
 #endif
