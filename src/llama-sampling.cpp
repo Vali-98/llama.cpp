@@ -736,6 +736,7 @@ struct llama_sampler * llama_sampler_init_min_p(float p, size_t min_keep) {
 
 // xtc
 
+/*
 struct llama_sampler_xtc {
     const uint32_t seed;
     std::mt19937 rng;
@@ -744,7 +745,7 @@ struct llama_sampler_xtc {
     const size_t min_keep;
 };
 
-static const char * llama_sampler_xtc_name(const struct llama_sampler * /* smpl */) {
+static const char * llama_sampler_xtc_name(const struct llama_sampler * /* smpl /) {
     return "xtc";
 }
 
@@ -857,27 +858,27 @@ static void llama_sampler_xtc_free(struct llama_sampler * smpl) {
 }
 
 static struct llama_sampler_i llama_sampler_xtc_i = {
-    /* .name   = */ llama_sampler_xtc_name,
-    /* .accept = */ nullptr,
-    /* .apply  = */ llama_sampler_xtc_apply,
-    /* .reset  = */ nullptr,
-    /* .clone  = */ llama_sampler_xtc_clone,
-    /* .free   = */ llama_sampler_xtc_free,
+    /* .name   = / llama_sampler_xtc_name,
+    /* .accept = / nullptr,
+    /* .apply  = / llama_sampler_xtc_apply,
+    /* .reset  = / nullptr,
+    /* .clone  = / llama_sampler_xtc_clone,
+    /* .free   = / llama_sampler_xtc_free,
 };
 
 struct llama_sampler * llama_sampler_init_xtc(float xtc_p, float xtc_t, size_t min_keep, uint32_t seed) {
     return new llama_sampler {
-        /* .iface = */ &llama_sampler_xtc_i,
-        /* .ctx   = */ new llama_sampler_xtc {
-            /* .seed        = */ seed,
-            /* .rng         = */ std::mt19937(seed),
-            /* .xtc_p       = */ xtc_p,
-            /* .xtc_t       = */ xtc_t,
-            /* .min_keep    = */ min_keep
+        /* .iface = / &llama_sampler_xtc_i,
+        /* .ctx   = / new llama_sampler_xtc {
+            /* .seed        = / seed,
+            /* .rng         = / std::mt19937(seed),
+            /* .xtc_p       = / xtc_p,
+            /* .xtc_t       = / xtc_t,
+            /* .min_keep    = / min_keep
         },
     };
 }
-
+*/
 // tail-free
 
 struct llama_sampler_tail_free {
