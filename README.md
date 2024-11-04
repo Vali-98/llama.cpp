@@ -17,7 +17,8 @@ Inference of Meta's [LLaMA](https://arxiv.org/abs/2302.13971) model (and others)
 
 ## Hot topics
 
-- **Hugging Face Inference Endpoints now support GGUF out of the box! https://github.com/ggerganov/llama.cpp/discussions/9669**
+- **Introducing GGUF-my-LoRA** https://github.com/ggerganov/llama.cpp/discussions/10123
+- Hugging Face Inference Endpoints now support GGUF out of the box! https://github.com/ggerganov/llama.cpp/discussions/9669
 - Hugging Face GGUF editor: [discussion](https://github.com/ggerganov/llama.cpp/discussions/9268) | [tool](https://huggingface.co/spaces/CISCai/gguf-editor)
 
 ----
@@ -93,6 +94,7 @@ Typically finetunes of the base models below are supported as well.
 - [x] [FalconMamba Models](https://huggingface.co/collections/tiiuae/falconmamba-7b-66b9a580324dd1598b0f6d4a)
 - [x] [Jais](https://huggingface.co/inceptionai/jais-13b-chat)
 - [x] [Bielik-11B-v2.3](https://huggingface.co/collections/speakleash/bielik-11b-v23-66ee813238d9b526a072408a)
+- [x] [RWKV-6](https://github.com/BlinkDL/RWKV-LM)
 
 (instructions for supporting more models: [HOWTO-add-model.md](./docs/development/HOWTO-add-model.md))
 
@@ -173,6 +175,7 @@ Unless otherwise noted these projects are open-source with permissive licensing:
 - [LARS - The LLM & Advanced Referencing Solution](https://github.com/abgulati/LARS) (AGPL)
 - [LLMUnity](https://github.com/undreamai/LLMUnity) (MIT)
 - [Llama Assistant](https://github.com/vietanhdev/llama-assistant) (GPL)
+- [PocketPal AI - An iOS and Android App](https://github.com/a-ghorbani/pocketpal-ai) (MIT)
 
 *(to have a project listed here, it should clearly state that it depends on `llama.cpp`)*
 
