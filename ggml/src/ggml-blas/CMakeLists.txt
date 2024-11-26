@@ -11,12 +11,9 @@ find_package(BLAS)
 if (BLAS_FOUND)
     message(STATUS "BLAS found, Libraries: ${BLAS_LIBRARIES}")
 
-    add_library(ggml-blas
-                ggml-blas.cpp
-                )
-
-    target_link_libraries(ggml-blas PRIVATE ggml-base)
-    target_include_directories(ggml-blas PRIVATE . ..)
+    ggml_add_backend_library(ggml-blas
+                             ggml-blas.cpp
+                            )
 
     if (${GGML_BLAS_VENDOR} MATCHES "Apple")
         add_compile_definitions(ACCELERATE_NEW_LAPACK)
@@ -75,7 +72,6 @@ if (BLAS_FOUND)
 
     message(STATUS "BLAS found, Includes: ${BLAS_INCLUDE_DIRS}")
 
-    #add_compile_options(${BLAS_LINKER_FLAGS})
     target_compile_options(ggml-blas PRIVATE ${BLAS_LINKER_FLAGS})
 
     if (${BLAS_INCLUDE_DIRS} MATCHES "mkl" AND (${GGML_BLAS_VENDOR} MATCHES "Generic" OR ${GGML_BLAS_VENDOR} MATCHES "Intel"))

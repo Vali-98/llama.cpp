@@ -4350,10 +4350,6 @@ static bool ggml_backend_sycl_device_supports_op(ggml_backend_dev_t dev, const g
                 if (op->op == GGML_OP_MUL_MAT) {
                     a = op->src[0];
                     b = op->src[1];
-                    if (ggml_is_permuted(a) || ggml_is_permuted(b)) {
-                        // TODO: fix like https://github.com/ggerganov/llama.cpp/pull/10021
-                        return false;
-                    }
                 } else {
                     a = op->src[2];
                     b = op->src[1];
@@ -4641,16 +4637,17 @@ ggml_backend_reg_t ggml_backend_sycl_reg() {
                 dev_ctx->description = prop.get_name();
 
                 ggml_backend_dev_t dev = new ggml_backend_device {
-                    /* .interface = */ ggml_backend_sycl_device_interface,
-                    /* .reg       = */ &reg,
-                    /* .context   = */ dev_ctx
+                    /* .iface       = */ ggml_backend_sycl_device_interface,
+                    /* .reg         = */ &reg,
+                    /* .context     = */ dev_ctx
                 };
                 ctx->devices.push_back(dev);
             }
 
             reg = ggml_backend_reg {
-                /* .interface = */ ggml_backend_sycl_reg_interface,
-                /* .context   = */ ctx
+                /* .api_version = */ GGML_BACKEND_API_VERSION,
+                /* .iface       = */ ggml_backend_sycl_reg_interface,
+                /* .context     = */ ctx
             };
         }
 
@@ -4682,3 +4679,4 @@ ggml_backend_t ggml_backend_sycl_init(int device) {
     return sycl_backend;
 }
 
+GGML_BACKEND_DL_IMPL(ggml_backend_sycl_reg)

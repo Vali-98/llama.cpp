@@ -47,28 +47,19 @@ if (MUSAToolkit_FOUND)
         set_property(SOURCE ${SOURCE} PROPERTY COMPILE_FLAGS "-x musa -mtgpu --cuda-gpu-arch=mp_21 --cuda-gpu-arch=mp_22")
     endforeach()
 
-    add_library(ggml-musa
-                ${GGML_HEADERS_MUSA}
-                ${GGML_SOURCES_MUSA})
-
-    target_link_libraries(ggml-musa PRIVATE ggml-base)
-    target_include_directories(ggml-musa PRIVATE . ..)
+    ggml_add_backend_library(ggml-musa
+                             ${GGML_HEADERS_MUSA}
+                             ${GGML_SOURCES_MUSA}
+                            )
 
     # TODO: do not use CUDA definitions for MUSA
     target_compile_definitions(ggml PUBLIC GGML_USE_CUDA)
 
     add_compile_definitions(GGML_USE_MUSA)
-    add_compile_definitions(GGML_CUDA_DMMV_X=${GGML_CUDA_DMMV_X})
-    add_compile_definitions(GGML_CUDA_MMV_Y=${GGML_CUDA_MMV_Y})
-    add_compile_definitions(K_QUANTS_PER_ITERATION=${GGML_CUDA_KQUANTS_ITER})
     add_compile_definitions(GGML_CUDA_PEER_MAX_BATCH_SIZE=${GGML_CUDA_PEER_MAX_BATCH_SIZE})
 
     if (GGML_CUDA_GRAPHS)
         add_compile_definitions(GGML_CUDA_USE_GRAPHS)
-    endif()
-
-    if (GGML_CUDA_FORCE_DMMV)
-        add_compile_definitions(GGML_CUDA_FORCE_DMMV)
     endif()
 
     if (GGML_CUDA_FORCE_MMQ)
@@ -81,10 +72,6 @@ if (MUSAToolkit_FOUND)
 
     if (GGML_CUDA_NO_VMM)
         add_compile_definitions(GGML_CUDA_NO_VMM)
-    endif()
-
-    if (DEFINED GGML_CUDA_DMMV_Y)
-        add_compile_definitions(GGML_CUDA_MMV_Y=${GGML_CUDA_DMMV_Y}) # for backwards compatibility
     endif()
 
     if (GGML_CUDA_F16 OR GGML_CUDA_DMMV_F16)

@@ -1,14 +1,13 @@
-add_library(ggml-cpu
-            ggml-cpu.c
-            ggml-cpu.cpp
-            ggml-cpu-aarch64.c
-            ggml-cpu-aarch64.h
-            ggml-cpu-quants.c
-            ggml-cpu-quants.h
-            )
+ggml_add_backend_library(ggml-cpu
+                         ggml-cpu.c
+                         ggml-cpu.cpp
+                         ggml-cpu-aarch64.c
+                         ggml-cpu-aarch64.h
+                         ggml-cpu-quants.c
+                         ggml-cpu-quants.h
+                        )
 
-target_link_libraries(ggml-cpu PRIVATE ggml-base)
-target_include_directories(ggml-cpu PRIVATE . ..)
+target_include_directories(ggml-cpu PRIVATE .)
 
 if (APPLE AND GGML_ACCELERATE)
     find_library(ACCELERATE_FRAMEWORK Accelerate)
@@ -243,6 +242,11 @@ elseif (${CMAKE_SYSTEM_PROCESSOR} MATCHES "loongarch64")
     endif()
     if (GGML_LSX)
         list(APPEND ARCH_FLAGS -mlsx)
+    endif()
+elseif (${CMAKE_SYSTEM_PROCESSOR} MATCHES "riscv64")
+    message(STATUS "RISC-V detected")
+    if (GGML_RVV)
+        list(APPEND ARCH_FLAGS -march=rv64gcv -mabi=lp64d)
     endif()
 else()
     message(STATUS "Unknown architecture")
