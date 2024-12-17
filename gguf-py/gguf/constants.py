@@ -131,6 +131,7 @@ class Keys:
 
     class Rope:
         DIMENSION_COUNT         = "{arch}.rope.dimension_count"
+        DIMENSION_SECTIONS      = "{arch}.rope.dimension_sections"
         FREQ_BASE               = "{arch}.rope.freq_base"
         SCALING_TYPE            = "{arch}.rope.scaling.type"
         SCALING_FACTOR          = "{arch}.rope.scaling.factor"
@@ -226,6 +227,7 @@ class MODEL_ARCH(IntEnum):
     QWEN         = auto()
     QWEN2        = auto()
     QWEN2MOE     = auto()
+    QWEN2VL      = auto()
     PHI2         = auto()
     PHI3         = auto()
     PLAMO        = auto()
@@ -247,6 +249,7 @@ class MODEL_ARCH(IntEnum):
     OLMOE        = auto()
     OPENELM      = auto()
     ARCTIC       = auto()
+    DEEPSEEK     = auto()
     DEEPSEEK2    = auto()
     CHATGLM      = auto()
     BITNET       = auto()
@@ -388,6 +391,7 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.QWEN:           "qwen",
     MODEL_ARCH.QWEN2:          "qwen2",
     MODEL_ARCH.QWEN2MOE:       "qwen2moe",
+    MODEL_ARCH.QWEN2VL:        "qwen2vl",
     MODEL_ARCH.PHI2:           "phi2",
     MODEL_ARCH.PHI3:           "phi3",
     MODEL_ARCH.PLAMO:          "plamo",
@@ -409,6 +413,7 @@ MODEL_ARCH_NAMES: dict[MODEL_ARCH, str] = {
     MODEL_ARCH.OLMOE:          "olmoe",
     MODEL_ARCH.OPENELM:        "openelm",
     MODEL_ARCH.ARCTIC:         "arctic",
+    MODEL_ARCH.DEEPSEEK:       "deepseek",
     MODEL_ARCH.DEEPSEEK2:      "deepseek2",
     MODEL_ARCH.CHATGLM:        "chatglm",
     MODEL_ARCH.BITNET:         "bitnet",
@@ -761,6 +766,21 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.TOKEN_EMBD,
         MODEL_TENSOR.OUTPUT_NORM,
         MODEL_TENSOR.OUTPUT,
+        MODEL_TENSOR.ROPE_FREQS,
+        MODEL_TENSOR.ATTN_NORM,
+        MODEL_TENSOR.ATTN_Q,
+        MODEL_TENSOR.ATTN_K,
+        MODEL_TENSOR.ATTN_V,
+        MODEL_TENSOR.ATTN_OUT,
+        MODEL_TENSOR.FFN_NORM,
+        MODEL_TENSOR.FFN_GATE,
+        MODEL_TENSOR.FFN_DOWN,
+        MODEL_TENSOR.FFN_UP,
+    ],
+    MODEL_ARCH.QWEN2VL: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.OUTPUT_NORM,
+        MODEL_TENSOR.OUTPUT,
         MODEL_TENSOR.ATTN_NORM,
         MODEL_TENSOR.ATTN_Q,
         MODEL_TENSOR.ATTN_K,
@@ -896,6 +916,8 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.OUTPUT,
         MODEL_TENSOR.OUTPUT_NORM,
         MODEL_TENSOR.ROPE_FREQS,
+        MODEL_TENSOR.ROPE_FACTORS_LONG,
+        MODEL_TENSOR.ROPE_FACTORS_SHORT,
         MODEL_TENSOR.ATTN_NORM,
         MODEL_TENSOR.ATTN_Q,
         MODEL_TENSOR.ATTN_K,
@@ -1138,6 +1160,29 @@ MODEL_TENSORS: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.FFN_DOWN_EXP,
         MODEL_TENSOR.FFN_UP_EXP,
     ],
+    MODEL_ARCH.DEEPSEEK: [
+        MODEL_TENSOR.TOKEN_EMBD,
+        MODEL_TENSOR.OUTPUT_NORM,
+        MODEL_TENSOR.OUTPUT,
+        MODEL_TENSOR.ROPE_FREQS,
+        MODEL_TENSOR.ATTN_NORM,
+        MODEL_TENSOR.ATTN_Q,
+        MODEL_TENSOR.ATTN_K,
+        MODEL_TENSOR.ATTN_V,
+        MODEL_TENSOR.ATTN_OUT,
+        MODEL_TENSOR.ATTN_ROT_EMBD,
+        MODEL_TENSOR.FFN_GATE_INP,
+        MODEL_TENSOR.FFN_NORM,
+        MODEL_TENSOR.FFN_GATE,
+        MODEL_TENSOR.FFN_DOWN,
+        MODEL_TENSOR.FFN_UP,
+        MODEL_TENSOR.FFN_GATE_EXP,
+        MODEL_TENSOR.FFN_DOWN_EXP,
+        MODEL_TENSOR.FFN_UP_EXP,
+        MODEL_TENSOR.FFN_GATE_SHEXP,
+        MODEL_TENSOR.FFN_DOWN_SHEXP,
+        MODEL_TENSOR.FFN_UP_SHEXP,
+    ],
     MODEL_ARCH.DEEPSEEK2: [
         MODEL_TENSOR.TOKEN_EMBD,
         MODEL_TENSOR.OUTPUT_NORM,
@@ -1360,6 +1405,10 @@ MODEL_TENSOR_SKIP: dict[MODEL_ARCH, list[MODEL_TENSOR]] = {
         MODEL_TENSOR.ROPE_FREQS,
         MODEL_TENSOR.ATTN_ROT_EMBD,
     ],
+    MODEL_ARCH.DEEPSEEK: [
+        MODEL_TENSOR.ROPE_FREQS,
+        MODEL_TENSOR.ATTN_ROT_EMBD,
+    ],
     MODEL_ARCH.DEEPSEEK2: [
         MODEL_TENSOR.ROPE_FREQS,
         MODEL_TENSOR.ATTN_ROT_EMBD,
@@ -1388,9 +1437,10 @@ class TokenType(IntEnum):
 
 
 class RopeScalingType(Enum):
-    NONE   = 'none'
-    LINEAR = 'linear'
-    YARN   = 'yarn'
+    NONE     = 'none'
+    LINEAR   = 'linear'
+    YARN     = 'yarn'
+    LONGROPE = 'longrope'
 
 
 class PoolingType(IntEnum):
@@ -1429,9 +1479,6 @@ class GGMLQuantizationType(IntEnum):
     F64     = 28
     IQ1_M   = 29
     BF16    = 30
-    Q4_0_4_4 = 31
-    Q4_0_4_8 = 32
-    Q4_0_8_8 = 33
     TQ1_0   = 34
     TQ2_0   = 35
 
@@ -1475,9 +1522,9 @@ class LlamaFileType(IntEnum):
     MOSTLY_IQ4_XS        = 30  # except 1d tensors
     MOSTLY_IQ1_M         = 31  # except 1d tensors
     MOSTLY_BF16          = 32  # except 1d tensors
-    MOSTLY_Q4_0_4_4      = 33  # except 1d tensors
-    MOSTLY_Q4_0_4_8      = 34  # except 1d tensors
-    MOSTLY_Q4_0_8_8      = 35  # except 1d tensors
+    # MOSTLY_Q4_0_4_4      = 33  # removed from gguf files, use Q4_0 and runtime repack
+    # MOSTLY_Q4_0_4_8      = 34  # removed from gguf files, use Q4_0 and runtime repack
+    # MOSTLY_Q4_0_8_8      = 35  # removed from gguf files, use Q4_0 and runtime repack
     MOSTLY_TQ1_0         = 36  # except 1d tensors
     MOSTLY_TQ2_0         = 37  # except 1d tensors
 
@@ -1553,9 +1600,6 @@ GGML_QUANT_SIZES: dict[GGMLQuantizationType, tuple[int, int]] = {
     GGMLQuantizationType.F64:     (1, 8),
     GGMLQuantizationType.IQ1_M:   (256, QK_K // 8 + QK_K // 16  + QK_K // 32),
     GGMLQuantizationType.BF16:    (1, 2),
-    GGMLQuantizationType.Q4_0_4_4:(32, 2 + 16),
-    GGMLQuantizationType.Q4_0_4_8:(32, 2 + 16),
-    GGMLQuantizationType.Q4_0_8_8:(32, 2 + 16),
     GGMLQuantizationType.TQ1_0:   (256, 2 + 4 * 13),
     GGMLQuantizationType.TQ2_0:   (256, 2 + 64),
 }

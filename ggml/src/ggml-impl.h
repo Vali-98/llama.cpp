@@ -74,8 +74,8 @@ static inline int ggml_up(int n, int m) {
 //
 
 GGML_ATTRIBUTE_FORMAT(2, 3)
-void ggml_log_internal        (enum ggml_log_level level, const char * format, ...);
-void ggml_log_callback_default(enum ggml_log_level level, const char * text, void * user_data);
+GGML_API void ggml_log_internal        (enum ggml_log_level level, const char * format, ...);
+GGML_API void ggml_log_callback_default(enum ggml_log_level level, const char * text, void * user_data);
 
 #define GGML_LOG(...)       ggml_log_internal(GGML_LOG_LEVEL_NONE , __VA_ARGS__)
 #define GGML_LOG_INFO(...)  ggml_log_internal(GGML_LOG_LEVEL_INFO , __VA_ARGS__)
@@ -304,20 +304,20 @@ struct ggml_cgraph ggml_graph_view(struct ggml_cgraph * cgraph, int i0, int i1);
 
 // Memory allocation
 
-void * ggml_aligned_malloc(size_t size);
-void ggml_aligned_free(void * ptr, size_t size);
+GGML_API void * ggml_aligned_malloc(size_t size);
+GGML_API void ggml_aligned_free(void * ptr, size_t size);
 
 // FP16 to FP32 conversion
 
 #if defined(__ARM_NEON)
-    #ifdef _MSC_VER
+    #if defined(_MSC_VER) || (defined(__CUDACC__) && __CUDACC_VER_MAJOR__ <= 11)
         typedef uint16_t ggml_fp16_internal_t;
     #else
         typedef __fp16 ggml_fp16_internal_t;
     #endif
 #endif
 
-#if defined(__ARM_NEON) && !defined(_MSC_VER)
+#if defined(__ARM_NEON) && !defined(_MSC_VER) && !(defined(__CUDACC__) && __CUDACC_VER_MAJOR__ <= 11)
     #define GGML_COMPUTE_FP16_TO_FP32(x) ggml_compute_fp16_to_fp32(x)
     #define GGML_COMPUTE_FP32_TO_FP16(x) ggml_compute_fp32_to_fp16(x)
 
