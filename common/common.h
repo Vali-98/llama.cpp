@@ -2,7 +2,7 @@
 
 #pragma once
 
-#include "llama.h"
+#include "llama-cpp.h"
 
 #include <string>
 #include <vector>
@@ -27,10 +27,8 @@
 struct common_lora_adapter_info {
     std::string path;
     float scale;
-};
 
-struct common_lora_adapter_container : common_lora_adapter_info {
-    struct llama_lora_adapter * adapter;
+    struct llama_lora_adapter * ptr;
 };
 
 using llama_tokens = std::vector<llama_token>;
@@ -91,6 +89,7 @@ enum llama_example {
     LLAMA_EXAMPLE_LLAVA,
     LLAMA_EXAMPLE_LOOKUP,
     LLAMA_EXAMPLE_PARALLEL,
+    LLAMA_EXAMPLE_TTS,
 
     LLAMA_EXAMPLE_COUNT,
 };
@@ -170,6 +169,7 @@ struct common_params_sampling {
 
 struct common_params_speculative {
     std::vector<ggml_backend_dev_t> devices; // devices to use for offloading
+
     int32_t n_ctx        =     0; // draft context size
     int32_t n_max        =    16; // maximum number of tokens to draft during speculative decoding
     int32_t n_min        =     5; // minimum number of draft tokens to use for speculative decoding
@@ -181,6 +181,14 @@ struct common_params_speculative {
     struct cpu_params cpuparams_batch;
 
     std::string model = ""; // draft model for speculative decoding                          // NOLINT
+};
+
+struct common_params_vocoder {
+    std::string hf_repo = ""; // HF repo                                                     // NOLINT
+    std::string hf_file = ""; // HF file                                                     // NOLINT
+
+    std::string model     = ""; // model path                                                // NOLINT
+    std::string model_url = ""; // model url to download                                     // NOLINT
 };
 
 struct common_params {
@@ -229,8 +237,9 @@ struct common_params {
     enum llama_pooling_type      pooling_type      = LLAMA_POOLING_TYPE_UNSPECIFIED; // pooling type for embeddings
     enum llama_attention_type    attention_type    = LLAMA_ATTENTION_TYPE_UNSPECIFIED; // attention type for embeddings
 
-    struct common_params_sampling sampling;
+    struct common_params_sampling    sampling;
     struct common_params_speculative speculative;
+    struct common_params_vocoder     vocoder;
 
     std::string model                = ""; // model path                                                    // NOLINT
     std::string model_alias          = ""; // model alias                                                   // NOLINT
@@ -482,10 +491,12 @@ std::string fs_get_cache_file(const std::string & filename);
 // Model utils
 //
 
+// note: defines object's lifetime
 struct common_init_result {
-    struct llama_model   * model   = nullptr;
-    struct llama_context * context = nullptr;
-    std::vector<common_lora_adapter_container> lora_adapters;
+    llama_model_ptr   model;
+    llama_context_ptr context;
+
+    std::vector<llama_lora_adapter_ptr> lora;
 };
 
 struct common_init_result     common_init_from_params(common_params & params);
@@ -507,7 +518,7 @@ struct llama_model * common_load_model_from_hf(
     const struct llama_model_params & params);
 
 // clear LoRA adapters from context, then apply new list of adapters
-void common_lora_adapters_apply(struct llama_context * ctx, std::vector<common_lora_adapter_container> & lora_adapters);
+void common_lora_adapters_apply(struct llama_context * ctx, std::vector<common_lora_adapter_info> & lora);
 
 //
 // Batch utils
@@ -575,6 +586,9 @@ struct common_chat_msg {
     std::string content;
 };
 
+// Get the built-in chat template for the model. Return empty string if not present.
+std::string common_get_builtin_chat_template(const struct llama_model * model);
+
 // Check if the template supplied via "--chat-template" is supported or not. Returns true if it's valid
 bool common_chat_verify_template(const std::string & tmpl);
 
@@ -611,7 +625,8 @@ void common_kv_cache_dump_view_seqs(const llama_kv_cache_view & view, int row_si
 // Embedding utils
 //
 
-void common_embd_normalize(const float * inp, float * out, int n, int embd_norm = 2);
+// TODO: repace embd_norm with an enum
+void common_embd_normalize(const float * inp, float * out, int n, int embd_norm);
 
 float common_embd_similarity_cos(const float * embd1, const float * embd2, int n);
 
@@ -640,6 +655,10 @@ common_control_vector_data common_control_vector_load(const std::vector<common_c
 // Split utils
 //
 
-static const char * const LLM_KV_SPLIT_NO            = "split.no";
-static const char * const LLM_KV_SPLIT_COUNT         = "split.count";
-static const char * const LLM_KV_SPLIT_TENSORS_COUNT = "split.tensors.count";
+namespace {
+
+const char * const LLM_KV_SPLIT_NO            = "split.no";
+const char * const LLM_KV_SPLIT_COUNT         = "split.count";
+const char * const LLM_KV_SPLIT_TENSORS_COUNT = "split.tensors.count";
+
+}

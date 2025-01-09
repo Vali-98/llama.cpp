@@ -3,6 +3,7 @@
 #include "common.h"
 #include "log.h"
 #include "llama.h"
+#include "common/base64.hpp"
 
 #ifndef NDEBUG
 // crash the server in debug mode, otherwise send an http 500 error
@@ -56,6 +57,8 @@ static T json_value(const json & body, const std::string & key, const T & defaul
     }
 }
 
+const static std::string build_info("b" + std::to_string(LLAMA_BUILD_NUMBER) + "-" + LLAMA_COMMIT);
+
 //
 // tokenizer and input processing utils
 //
@@ -86,6 +89,28 @@ static bool json_is_array_of_mixed_numbers_strings(const json & data) {
         }
     }
     return false;
+}
+
+// get value by path(key1 / key2)
+static json json_get_nested_values(const std::vector<std::string> & paths, const json & js) {
+    json result = json::object();
+
+    for (const std::string & path : paths) {
+        json current = js;
+        const auto keys = string_split<std::string>(path, /*separator*/ '/');
+        bool valid_path = true;
+        for (const std::string & k : keys) {
+            if (valid_path && current.is_object() && current.contains(k)) {
+                current = current[k];
+            } else {
+                valid_path = false;
+            }
+        }
+        if (valid_path) {
+            result[path] = current;
+        }
+    }
+    return result;
 }
 
 /**
@@ -138,6 +163,7 @@ static llama_tokens tokenize_mixed(const llama_context * ctx, const json & json_
  * and multiple prompts (multi-tasks):
  * - "prompt": ["string1", "string2"]
  * - "prompt": ["string1", [12, 34, 56]]
+ * - "prompt": [[12, 34, 56], [78, 90, 12]]
  * - "prompt": [[12, 34, "string", 56, 78], [12, 34, 56]]
  */
 static std::vector<llama_tokens> tokenize_input_prompts(llama_context * ctx, const json & json_prompt, bool add_special, bool parse_special) {
@@ -168,6 +194,36 @@ static std::vector<llama_tokens> tokenize_input_prompts(llama_context * ctx, con
         throw std::runtime_error("\"prompt\" must not be empty");
     }
     return result;
+}
+
+// return the last index of character that can form a valid string
+// if the last character is potentially cut in half, return the index before the cut
+// if validate_utf8(text) == text.size(), then the whole text is valid utf8
+static size_t validate_utf8(const std::string& text) {
+    size_t len = text.size();
+    if (len == 0) return 0;
+
+    // Check the last few bytes to see if a multi-byte character is cut off
+    for (size_t i = 1; i <= 4 && i <= len; ++i) {
+        unsigned char c = text[len - i];
+        // Check for start of a multi-byte sequence from the end
+        if ((c & 0xE0) == 0xC0) {
+            // 2-byte character start: 110xxxxx
+            // Needs at least 2 bytes
+            if (i < 2) return len - i;
+        } else if ((c & 0xF0) == 0xE0) {
+            // 3-byte character start: 1110xxxx
+            // Needs at least 3 bytes
+            if (i < 3) return len - i;
+        } else if ((c & 0xF8) == 0xF0) {
+            // 4-byte character start: 11110xxx
+            // Needs at least 4 bytes
+            if (i < 4) return len - i;
+        }
+    }
+
+    // If no cut-off multi-byte character is found, return full length
+    return len;
 }
 
 //
@@ -326,19 +382,6 @@ inline std::string format_chat(const struct llama_model * model, const std::stri
     return formatted_chat;
 }
 
-static std::string llama_get_chat_template(const struct llama_model * model) {
-    std::string template_key = "tokenizer.chat_template";
-    // call with NULL buffer to get the total size of the string
-    int32_t res = llama_model_meta_val_str(model, template_key.c_str(), NULL, 0);
-    if (res < 2) {
-        return "";
-    } else {
-        std::vector<char> model_template(res + 1, 0);
-        llama_model_meta_val_str(model, template_key.c_str(), model_template.data(), model_template.size());
-        return std::string(model_template.data(), model_template.size() - 1);
-    }
-}
-
 //
 // base64 utils (TODO: move to common in the future)
 //
@@ -464,7 +507,7 @@ static std::string tokens_to_str(llama_context * ctx, Iter begin, Iter end) {
 
 // format incomplete utf-8 multibyte character for output
 static std::string tokens_to_output_formatted_string(const llama_context * ctx, const llama_token token) {
-    std::string out = token == -1 ? "" : common_token_to_piece(ctx, token);
+    std::string out = token == LLAMA_TOKEN_NULL ? "" : common_token_to_piece(ctx, token);
 
     // if the size is 1 and first bit is 1, meaning it's a partial character
     //   (size > 1 meaning it's already a known token)
@@ -493,10 +536,49 @@ static bool server_sent_event(httplib::DataSink & sink, const char * event, cons
 // OAI utils
 //
 
-static json oaicompat_completion_params_parse(
-    const struct llama_model * model,
-    const json & body, /* openai api json semantics */
-    const std::string & chat_template) {
+static json oaicompat_completion_params_parse(const json & body) {
+    json llama_params;
+
+    if (!body.contains("prompt")) {
+        throw std::runtime_error("\"prompt\" is required");
+    }
+
+    // Handle "stop" field
+    if (body.contains("stop") && body.at("stop").is_string()) {
+        llama_params["stop"] = json::array({body.at("stop").get<std::string>()});
+    } else {
+        llama_params["stop"] = json_value(body, "stop", json::array());
+    }
+
+    // Handle "n" field
+    int n_choices = json_value(body, "n", 1);
+    if (n_choices != 1) {
+        throw std::runtime_error("Only one completion choice is allowed");
+    }
+
+    // Params supported by OAI but unsupported by llama.cpp
+    static const std::vector<std::string> unsupported_params { "best_of", "echo", "suffix" };
+    for (const auto & param : unsupported_params) {
+        if (body.contains(param)) {
+            throw std::runtime_error("Unsupported param: " + param);
+        }
+    }
+
+    // Copy remaining properties to llama_params
+    for (const auto & item : body.items()) {
+        // Exception: if "n_predict" is present, we overwrite the value specified earlier by "max_tokens"
+        if (!llama_params.contains(item.key()) || item.key() == "n_predict") {
+            llama_params[item.key()] = item.value();
+        }
+    }
+
+    return llama_params;
+}
+
+static json oaicompat_chat_completion_params_parse(
+        const struct llama_model * model,
+        const json & body, /* openai api json semantics */
+        const std::string & chat_template) {
     json llama_params;
 
     // Apply chat template to the list of messages
@@ -558,23 +640,41 @@ static json oaicompat_completion_params_parse(
     return llama_params;
 }
 
-static json format_embeddings_response_oaicompat(const json & request, const json & embeddings) {
+static json format_embeddings_response_oaicompat(const json & request, const json & embeddings, bool use_base64 = false) {
     json data = json::array();
+    int32_t n_tokens = 0;
     int i = 0;
     for (const auto & elem : embeddings) {
-        data.push_back(json{
-            {"embedding", json_value(elem, "embedding", json::array())},
-            {"index",     i++},
-            {"object",    "embedding"}
-        });
+        json embedding_obj;
+
+        if (use_base64) {
+            const auto& vec = json_value(elem, "embedding", json::array()).get<std::vector<float>>();
+            const char* data_ptr = reinterpret_cast<const char*>(vec.data());
+            size_t data_size = vec.size() * sizeof(float);
+            embedding_obj = {
+                {"embedding", base64::encode(data_ptr, data_size)},
+                {"index", i++},
+                {"object", "embedding"},
+                {"encoding_format", "base64"}
+            };
+        } else {
+            embedding_obj = {
+                {"embedding", json_value(elem, "embedding", json::array())},
+                {"index", i++},
+                {"object", "embedding"}
+            };
+        }
+        data.push_back(embedding_obj);
+
+        n_tokens += json_value(elem, "tokens_evaluated", 0);
     }
 
     json res = json {
         {"model", json_value(request, "model", std::string(DEFAULT_OAICOMPAT_MODEL))},
         {"object", "list"},
-        {"usage", json { // TODO: fill
-            {"prompt_tokens", 0},
-            {"total_tokens", 0}
+        {"usage", json {
+            {"prompt_tokens", n_tokens},
+            {"total_tokens", n_tokens}
         }},
         {"data", data}
     };
@@ -584,20 +684,23 @@ static json format_embeddings_response_oaicompat(const json & request, const jso
 
 static json format_response_rerank(const json & request, const json & ranks) {
     json data = json::array();
+    int32_t n_tokens = 0;
     int i = 0;
     for (const auto & rank : ranks) {
         data.push_back(json{
             {"index",    i++},
             {"relevance_score", json_value(rank, "score", 0.0)},
         });
+
+        n_tokens += json_value(rank, "tokens_evaluated", 0);
     }
 
     json res = json {
         {"model", json_value(request, "model", std::string(DEFAULT_OAICOMPAT_MODEL))},
         {"object", "list"},
-        {"usage", json { // TODO: fill
-            {"prompt_tokens", 0},
-            {"total_tokens", 0}
+        {"usage", json {
+            {"prompt_tokens", n_tokens},
+            {"total_tokens", n_tokens}
         }},
         {"results", data}
     };
@@ -663,4 +766,75 @@ static json format_logit_bias(const std::vector<llama_logit_bias> & logit_bias) 
 
 static std::string safe_json_to_str(json data) {
     return data.dump(-1, ' ', false, json::error_handler_t::replace);
+}
+
+static std::vector<llama_token_data> get_token_probabilities(llama_context * ctx, int idx) {
+    std::vector<llama_token_data> cur;
+    const auto * logits = llama_get_logits_ith(ctx, idx);
+    const int n_vocab = llama_n_vocab(llama_get_model(ctx));
+
+    cur.resize(n_vocab);
+    for (llama_token token_id = 0; token_id < n_vocab; token_id++) {
+        cur[token_id] = llama_token_data{token_id, logits[token_id], 0.0f};
+    }
+
+    // sort tokens by logits
+    std::sort(cur.begin(), cur.end(), [](const llama_token_data & a, const llama_token_data & b) {
+        return a.logit > b.logit;
+    });
+
+    // apply softmax
+    float max_l = cur[0].logit;
+    float cum_sum = 0.0f;
+    for (size_t i = 0; i < cur.size(); ++i) {
+        float p = expf(cur[i].logit - max_l);
+        cur[i].p = p;
+        cum_sum += p;
+    }
+    for (size_t i = 0; i < cur.size(); ++i) {
+        cur[i].p /= cum_sum;
+    }
+
+    return cur;
+}
+
+static bool are_lora_equal(
+        const std::vector<common_lora_adapter_info> & l1,
+        const std::vector<common_lora_adapter_info> & l2) {
+    if (l1.size() != l2.size()) {
+        return false;
+    }
+    for (size_t i = 0; i < l1.size(); ++i) {
+        // we don't check lora.path to reduce the time complexity
+        if (l1[i].scale != l2[i].scale || l1[i].ptr != l2[i].ptr) {
+            return false;
+        }
+    }
+    return true;
+}
+
+// parse lora config from JSON request, returned a copy of lora_base with updated scale
+static std::vector<common_lora_adapter_info> parse_lora_request(
+        const std::vector<common_lora_adapter_info> & lora_base,
+        const json & data) {
+    std::vector<common_lora_adapter_info> lora(lora_base);
+    int max_idx = lora.size();
+
+    // clear existing value
+    for (auto & entry : lora) {
+        entry.scale = 0.0f;
+    }
+
+    // set value
+    for (const auto & entry : data) {
+        int id      = json_value(entry, "id", -1);
+        float scale = json_value(entry, "scale", 0.0f);
+        if (0 <= id && id < max_idx) {
+            lora[id].scale = scale;
+        } else {
+            throw std::runtime_error("invalid adapter id");
+        }
+    }
+
+    return lora;
 }

@@ -22,6 +22,11 @@ common_arg & common_arg::set_examples(std::initializer_list<enum llama_example> 
     return *this;
 }
 
+common_arg & common_arg::set_excludes(std::initializer_list<enum llama_example> excludes) {
+    this->excludes = std::move(excludes);
+    return *this;
+}
+
 common_arg & common_arg::set_env(const char * env) {
     help = help + "\n(env: " + env + ")";
     this->env = env;
@@ -35,6 +40,10 @@ common_arg & common_arg::set_sparam() {
 
 bool common_arg::in_example(enum llama_example ex) {
     return examples.find(ex) != examples.end();
+}
+
+bool common_arg::is_exclude(enum llama_example ex) {
+    return excludes.find(ex) != excludes.end();
 }
 
 bool common_arg::get_value_from_env(std::string & output) {
@@ -119,29 +128,33 @@ std::string common_arg::to_string() {
 // utils
 //
 
-static void common_params_handle_model_default(common_params & params) {
-    if (!params.hf_repo.empty()) {
+static void common_params_handle_model_default(
+        std::string & model,
+        std::string & model_url,
+        std::string & hf_repo,
+        std::string & hf_file) {
+    if (!hf_repo.empty()) {
         // short-hand to avoid specifying --hf-file -> default it to --model
-        if (params.hf_file.empty()) {
-            if (params.model.empty()) {
+        if (hf_file.empty()) {
+            if (model.empty()) {
                 throw std::invalid_argument("error: --hf-repo requires either --hf-file or --model\n");
             }
-            params.hf_file = params.model;
-        } else if (params.model.empty()) {
+            hf_file = model;
+        } else if (model.empty()) {
             // this is to avoid different repo having same file name, or same file name in different subdirs
-            std::string filename = params.hf_repo + "_" + params.hf_file;
+            std::string filename = hf_repo + "_" + hf_file;
             // to make sure we don't have any slashes in the filename
             string_replace_all(filename, "/", "_");
-            params.model = fs_get_cache_file(filename);
+            model = fs_get_cache_file(filename);
         }
-    } else if (!params.model_url.empty()) {
-        if (params.model.empty()) {
-            auto f = string_split<std::string>(params.model_url, '#').front();
+    } else if (!model_url.empty()) {
+        if (model.empty()) {
+            auto f = string_split<std::string>(model_url, '#').front();
             f = string_split<std::string>(f, '?').front();
-            params.model = fs_get_cache_file(string_split<std::string>(f, '/').back());
+            model = fs_get_cache_file(string_split<std::string>(f, '/').back());
         }
-    } else if (params.model.empty()) {
-        params.model = DEFAULT_MODEL_PATH;
+    } else if (model.empty()) {
+        model = DEFAULT_MODEL_PATH;
     }
 }
 
@@ -276,7 +289,9 @@ static bool common_params_parse_ex(int argc, char ** argv, common_params_context
         throw std::invalid_argument("error: --prompt-cache-all not supported in interactive mode yet\n");
     }
 
-    common_params_handle_model_default(params);
+    // TODO: refactor model params in a common struct
+    common_params_handle_model_default(params.model,         params.model_url,         params.hf_repo,         params.hf_file);
+    common_params_handle_model_default(params.vocoder.model, params.vocoder.model_url, params.vocoder.hf_repo, params.vocoder.hf_file);
 
     if (params.escape) {
         string_process_escapes(params.prompt);
@@ -414,7 +429,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
      * - if both {LLAMA_EXAMPLE_COMMON, LLAMA_EXAMPLE_*,} are set, we will prioritize the LLAMA_EXAMPLE_* matching current example
      */
     auto add_opt = [&](common_arg arg) {
-        if (arg.in_example(ex) || arg.in_example(LLAMA_EXAMPLE_COMMON)) {
+        if ((arg.in_example(ex) || arg.in_example(LLAMA_EXAMPLE_COMMON)) && !arg.is_exclude(ex)) {
             ctx_arg.options.push_back(std::move(arg));
         }
     };
@@ -620,7 +635,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         [](common_params & params) {
             params.ctx_shift = false;
         }
-    ).set_examples({LLAMA_EXAMPLE_MAIN, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_IMATRIX}).set_env("LLAMA_ARG_NO_CONTEXT_SHIFT"));
+    ).set_examples({LLAMA_EXAMPLE_MAIN, LLAMA_EXAMPLE_SERVER, LLAMA_EXAMPLE_IMATRIX, LLAMA_EXAMPLE_PERPLEXITY}).set_env("LLAMA_ARG_NO_CONTEXT_SHIFT"));
     add_opt(common_arg(
         {"--chunks"}, "N",
         string_format("max number of chunks to process (default: %d, -1 = all)", params.n_chunks),
@@ -643,7 +658,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         [](common_params & params, const std::string & value) {
             params.prompt = value;
         }
-    ));
+    ).set_excludes({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
         {"--no-perf"},
         string_format("disable internal libllama performance timings (default: %s)", params.no_perf ? "true" : "false"),
@@ -667,7 +682,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
                 params.prompt.pop_back();
             }
         }
-    ));
+    ).set_excludes({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
         {"--in-file"}, "FNAME",
         "an input file (repeat to specify multiple files)",
@@ -694,7 +709,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             params.prompt = ss.str();
             fprintf(stderr, "Read %zu bytes from binary file %s\n", params.prompt.size(), value.c_str());
         }
-    ));
+    ).set_excludes({LLAMA_EXAMPLE_SERVER}));
     add_opt(common_arg(
         {"-e", "--escape"},
         string_format("process escapes sequences (\\n, \\r, \\t, \\', \\\", \\\\) (default: %s)", params.escape ? "true" : "false"),
@@ -842,7 +857,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         }
     ).set_sparam());
     add_opt(common_arg(
-        {"--sampling-seq"}, "SEQUENCE",
+        {"--sampling-seq", "--sampler-seq"}, "SEQUENCE",
         string_format("simplified sequence for samplers that will be used (default: %s)", sampler_type_chars.c_str()),
         [](common_params & params, const std::string & value) {
             params.sampling.samplers = common_sampler_types_from_chars(value);
@@ -1506,7 +1521,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"--lora"}, "FNAME",
         "path to LoRA adapter (can be repeated to use multiple adapters)",
         [](common_params & params, const std::string & value) {
-            params.lora_adapters.push_back({ std::string(value), 1.0 });
+            params.lora_adapters.push_back({ std::string(value), 1.0, nullptr });
         }
         // we define this arg on both COMMON and EXPORT_LORA, so when showing help message of export-lora, it will be categorized as "example-specific" arg
     ).set_examples({LLAMA_EXAMPLE_COMMON, LLAMA_EXAMPLE_EXPORT_LORA}));
@@ -1514,7 +1529,7 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
         {"--lora-scaled"}, "FNAME", "SCALE",
         "path to LoRA adapter with user defined scaling (can be repeated to use multiple adapters)",
         [](common_params & params, const std::string & fname, const std::string & scale) {
-            params.lora_adapters.push_back({ fname, std::stof(scale) });
+            params.lora_adapters.push_back({ fname, std::stof(scale), nullptr });
         }
         // we define this arg on both COMMON and EXPORT_LORA, so when showing help message of export-lora, it will be categorized as "example-specific" arg
     ).set_examples({LLAMA_EXAMPLE_COMMON, LLAMA_EXAMPLE_EXPORT_LORA}));
@@ -1581,6 +1596,20 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             params.hf_file = value;
         }
     ).set_env("LLAMA_ARG_HF_FILE"));
+    add_opt(common_arg(
+        {"-hfrv", "--hf-repo-v"}, "REPO",
+        "Hugging Face model repository for the vocoder model (default: unused)",
+        [](common_params & params, const std::string & value) {
+            params.vocoder.hf_repo = value;
+        }
+    ).set_env("LLAMA_ARG_HF_REPO_V"));
+    add_opt(common_arg(
+        {"-hffv", "--hf-file-v"}, "FILE",
+        "Hugging Face model file for the vocoder model (default: unused)",
+        [](common_params & params, const std::string & value) {
+            params.vocoder.hf_file = value;
+        }
+    ).set_env("LLAMA_ARG_HF_FILE_V"));
     add_opt(common_arg(
         {"-hft", "--hf-token"}, "TOKEN",
         "Hugging Face access token (default: value from HF_TOKEN environment variable)",
@@ -2177,6 +2206,26 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             params.speculative.model = value;
         }
     ).set_examples({LLAMA_EXAMPLE_SPECULATIVE, LLAMA_EXAMPLE_SERVER}).set_env("LLAMA_ARG_MODEL_DRAFT"));
+
+    add_opt(common_arg(
+        {"-mv", "--model-vocoder"}, "FNAME",
+        "vocoder model for audio generation (default: unused)",
+        [](common_params & params, const std::string & value) {
+            params.vocoder.model = value;
+        }
+    ).set_examples({LLAMA_EXAMPLE_TTS, LLAMA_EXAMPLE_SERVER}));
+
+    // model-specific
+    add_opt(common_arg(
+        {"--tts-oute-default"},
+        string_format("use default OuteTTS models (note: can download weights from the internet)"),
+        [](common_params & params) {
+            params.hf_repo = "OuteAI/OuteTTS-0.2-500M-GGUF";
+            params.hf_file = "OuteTTS-0.2-500M-Q8_0.gguf";
+            params.vocoder.hf_repo = "ggml-org/WavTokenizer";
+            params.vocoder.hf_file = "WavTokenizer-Large-75-F16.gguf";
+        }
+    ).set_examples({LLAMA_EXAMPLE_TTS}));
 
     return ctx_arg;
 }

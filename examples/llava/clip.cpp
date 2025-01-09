@@ -7,26 +7,27 @@
 #include "ggml-cpu.h"
 #include "ggml-alloc.h"
 #include "ggml-backend.h"
+#include "gguf.h"
 
-#ifdef GGML_USE_CUDA
-#include "ggml-cuda.h"
-#endif
-
-#ifdef GGML_USE_SYCL
-#include "ggml-sycl.h"
-#endif
-
-#ifdef GGML_USE_METAL
-#include "ggml-metal.h"
-#endif
-
-#ifdef GGML_USE_CANN
-#include "ggml-cann.h"
-#endif
-
-#ifdef GGML_USE_VULKAN
-#include "ggml-vulkan.h"
-#endif
+//#ifdef GGML_USE_CUDA
+//#include "ggml-cuda.h"
+//#endif
+//
+//#ifdef GGML_USE_SYCL
+//#include "ggml-sycl.h"
+//#endif
+//
+//#ifdef GGML_USE_METAL
+//#include "ggml-metal.h"
+//#endif
+//
+//#ifdef GGML_USE_CANN
+//#include "ggml-cann.h"
+//#endif
+//
+//#ifdef GGML_USE_VULKAN
+//#include "ggml-vulkan.h"
+//#endif
 
 #define STB_IMAGE_IMPLEMENTATION
 #include "stb_image.h"
@@ -262,7 +263,7 @@ static std::string gguf_kv_to_str(const struct gguf_context * ctx_gguf, int i) {
             {
                 const enum gguf_type arr_type = gguf_get_arr_type(ctx_gguf, i);
                 int arr_n = gguf_get_arr_n(ctx_gguf, i);
-                const void * data = gguf_get_arr_data(ctx_gguf, i);
+                const void * data = arr_type == GGUF_TYPE_STRING ? nullptr : gguf_get_arr_data(ctx_gguf, i);
                 std::stringstream ss;
                 ss << "[";
                 for (int j = 0; j < arr_n; j++) {
@@ -896,7 +897,7 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
                 mlp_3 = ggml_cont(ctx0, ggml_permute(ctx0, mlp_3, 1, 0, 2, 3));
                 mlp_3 = ggml_reshape_4d(ctx0, mlp_3, n_patch, n_patch, mlp_3->ne[1], mlp_3->ne[2]);
                 // stride = 1, padding = 1, bias is nullptr
-                block_1 = ggml_conv_depthwise_2d(ctx0, model.mm_model_block_1_block_0_0_w, mlp_3, 1, 1, 1, 1, 1, 1);
+                block_1 = ggml_conv_2d_dw(ctx0, model.mm_model_block_1_block_0_0_w, mlp_3, 1, 1, 1, 1, 1, 1);
 
                 // layer norm
                 // // block_1 shape = [1, 2048, 24, 24], ne = [24, 24, 2048, 1]
@@ -944,7 +945,7 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             // block_2
             {
                 // stride = 2
-                block_1 = ggml_conv_depthwise_2d(ctx0, model.mm_model_block_2_block_0_0_w, block_1, 2, 2, 1, 1, 1, 1);
+                block_1 = ggml_conv_2d_dw(ctx0, model.mm_model_block_2_block_0_0_w, block_1, 2, 2, 1, 1, 1, 1);
 
                 // block_1 shape = [1, 2048, 12, 12], ne = [12, 12, 2048, 1]
                 // layer norm
@@ -1005,7 +1006,7 @@ static ggml_cgraph * clip_image_build_graph(clip_ctx * ctx, const clip_image_f32
             // mlp_2 ne [24, 24, 2048, 1]
             mlp_2 = ggml_pool_2d(ctx0, mlp_2, GGML_OP_POOL_AVG, 2, 2, 2, 2, 0, 0);
             // weight ne = [3, 3, 2048, 1]
-            struct ggml_tensor * peg_0 = ggml_conv_depthwise_2d(ctx0, model.mm_model_peg_0_w, mlp_2, 1, 1, 1, 1, 1, 1);
+            struct ggml_tensor * peg_0 = ggml_conv_2d_dw(ctx0, model.mm_model_peg_0_w, mlp_2, 1, 1, 1, 1, 1, 1);
             peg_0 = ggml_cont(ctx0, ggml_permute(ctx0, peg_0, 1, 2, 0, 3));
             peg_0 = ggml_add(ctx0, peg_0, model.mm_model_peg_0_b);
             mlp_2 = ggml_cont(ctx0, ggml_permute(ctx0, mlp_2, 1, 2, 0, 3));
@@ -1222,30 +1223,30 @@ struct clip_ctx * clip_model_load(const char * fname, const int verbosity = 1) {
         }
     }
 
-#ifdef GGML_USE_CUDA
-    new_clip->backend = ggml_backend_cuda_init(0);
-    LOG_INF("%s: CLIP using CUDA backend\n", __func__);
-#endif
-
-#ifdef GGML_USE_METAL
-    new_clip->backend = ggml_backend_metal_init();
-    LOG_INF("%s: CLIP using Metal backend\n", __func__);
-#endif
-
-#ifdef GGML_USE_CANN
-    new_clip->backend = ggml_backend_cann_init(0);
-    LOG_INF("%s: CLIP using CANN backend\n", __func__);
-#endif
-
-#ifdef GGML_USE_VULKAN
-    new_clip->backend = ggml_backend_vk_init(0);
-    LOG_INF("%s: CLIP using Vulkan backend\n", __func__);
-#endif
-
-#ifdef GGML_USE_SYCL
-    new_clip->backend = ggml_backend_sycl_init(0);
-    LOG_INF("%s: CLIP using SYCL backend\n", __func__);
-#endif
+//#ifdef GGML_USE_CUDA
+//    new_clip->backend = ggml_backend_cuda_init(0);
+//    LOG_INF("%s: CLIP using CUDA backend\n", __func__);
+//#endif
+//
+//#ifdef GGML_USE_METAL
+//    new_clip->backend = ggml_backend_metal_init();
+//    LOG_INF("%s: CLIP using Metal backend\n", __func__);
+//#endif
+//
+//#ifdef GGML_USE_CANN
+//    new_clip->backend = ggml_backend_cann_init(0);
+//    LOG_INF("%s: CLIP using CANN backend\n", __func__);
+//#endif
+//
+//#ifdef GGML_USE_VULKAN
+//    new_clip->backend = ggml_backend_vk_init(0);
+//    LOG_INF("%s: CLIP using Vulkan backend\n", __func__);
+//#endif
+//
+//#ifdef GGML_USE_SYCL
+//    new_clip->backend = ggml_backend_sycl_init(0);
+//    LOG_INF("%s: CLIP using SYCL backend\n", __func__);
+//#endif
 
     if (!new_clip->backend) {
         new_clip->backend = ggml_backend_cpu_init();
@@ -2734,7 +2735,8 @@ bool clip_model_quantize(const char * fname_inp, const char * fname_out, const i
         total_size_org += orig_size;
         total_size_new += new_size;
         gguf_set_tensor_type(ctx_out, name.c_str(), new_type);
-        gguf_set_tensor_data(ctx_out, name.c_str(), new_data, new_size);
+        GGML_ASSERT(gguf_get_tensor_size(ctx_out, gguf_find_tensor(ctx_out, name.c_str())) == new_size);
+        gguf_set_tensor_data(ctx_out, name.c_str(), new_data);
         fout.write((const char *)new_data, new_size);
         size_t pad = GGML_PAD(new_size, gguf_get_alignment(ctx_out)) - new_size;
         for (size_t j = 0; j < pad; ++j) {

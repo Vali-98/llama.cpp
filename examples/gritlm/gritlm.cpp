@@ -75,7 +75,7 @@ static std::vector<std::vector<float>> encode(llama_context * ctx, const std::ve
         }
 
         std::vector<float> emb_norm(emb_unorm.size());
-        common_embd_normalize(emb_unorm.data(), emb_norm.data(), n_embd);
+        common_embd_normalize(emb_unorm.data(), emb_norm.data(), n_embd, 2);
         result.push_back(emb_norm);
 
 #ifdef GRIT_DEBUG
@@ -165,7 +165,7 @@ int main(int argc, char * argv[]) {
 
     llama_backend_init();
 
-    llama_model * model = llama_load_model_from_file(params.model.c_str(), mparams);
+    llama_model * model = llama_model_load_from_file(params.model.c_str(), mparams);
 
     // create generation context
     llama_context * ctx = llama_new_context_with_model(model, cparams);
@@ -219,7 +219,7 @@ int main(int argc, char * argv[]) {
 
     llama_sampler_free(smpl);
     llama_free(ctx);
-    llama_free_model(model);
+    llama_model_free(model);
     llama_backend_free();
 
     return 0;

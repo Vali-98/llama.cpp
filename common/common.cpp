@@ -2,6 +2,9 @@
 #define _SILENCE_CXX17_CODECVT_HEADER_DEPRECATION_WARNING
 #endif
 
+#include "ggml.h"
+#include "gguf.h"
+
 #include "common.h"
 #include "log.h"
 // Change JSON_ASSERT from assert() to GGML_ASSERT:
@@ -18,6 +21,7 @@
 #include <cstdarg>
 #include <cstring>
 #include <ctime>
+#include <filesystem>
 #include <fstream>
 #include <iostream>
 #include <iterator>
@@ -68,7 +72,9 @@ char const *LLAMA_BUILD_TARGET = "unknown";
 #ifdef __linux__
 #include <linux/limits.h>
 #elif defined(_WIN32)
-#define PATH_MAX MAX_PATH
+#   if !defined(PATH_MAX)
+#   define PATH_MAX MAX_PATH
+#   endif
 #else
 #include <sys/syslimits.h>
 #endif
@@ -849,7 +855,7 @@ struct common_init_result common_init_from_params(common_params & params) {
     } else if (!params.model_url.empty()) {
         model = common_load_model_from_url(params.model_url, params.model, params.hf_token, mparams);
     } else {
-        model = llama_load_model_from_file(params.model.c_str(), mparams);
+        model = llama_model_load_from_file(params.model.c_str(), mparams);
     }
 
     if (model == NULL) {
@@ -876,7 +882,7 @@ struct common_init_result common_init_from_params(common_params & params) {
         }
 
         if (!ok) {
-            llama_free_model(model);
+            llama_model_free(model);
 
             return iparams;
         }
@@ -887,14 +893,13 @@ struct common_init_result common_init_from_params(common_params & params) {
     llama_context * lctx = llama_new_context_with_model(model, cparams);
     if (lctx == NULL) {
         LOG_ERR("%s: failed to create context with model '%s'\n", __func__, params.model.c_str());
-        llama_free_model(model);
+        llama_model_free(model);
         return iparams;
     }
 
     if (params.ctx_shift && !llama_kv_cache_can_shift(lctx)) {
-        LOG_ERR("%s: KV cache shifting is not supported for this model (--no-context-shift to disable)'\n", __func__);
-        llama_free_model(model);
-        return iparams;
+        LOG_WRN("%s: KV cache shifting is not supported for this model, disabling KV cache shifting\n", __func__);
+        params.ctx_shift = false;
     }
 
     if (!params.control_vectors.empty()) {
@@ -904,7 +909,7 @@ struct common_init_result common_init_from_params(common_params & params) {
         const auto cvec = common_control_vector_load(params.control_vectors);
         if (cvec.n_embd == -1) {
             llama_free(lctx);
-            llama_free_model(model);
+            llama_model_free(model);
 
             return iparams;
         }
@@ -917,7 +922,7 @@ struct common_init_result common_init_from_params(common_params & params) {
                                              params.control_vector_layer_end);
         if (err) {
             llama_free(lctx);
-            llama_free_model(model);
+            llama_model_free(model);
 
             return iparams;
         }
@@ -925,20 +930,21 @@ struct common_init_result common_init_from_params(common_params & params) {
 
     // load and optionally apply lora adapters
     for (auto & la : params.lora_adapters) {
-        common_lora_adapter_container loaded_la;
-        loaded_la.path = la.path;
-        loaded_la.scale = la.scale;
-        loaded_la.adapter = llama_lora_adapter_init(model, la.path.c_str());
-        if (loaded_la.adapter == nullptr) {
+        llama_lora_adapter_ptr lora;
+        lora.reset(llama_lora_adapter_init(model, la.path.c_str()));
+        if (lora == nullptr) {
             LOG_ERR("%s: failed to apply lora adapter '%s'\n", __func__, la.path.c_str());
             llama_free(lctx);
-            llama_free_model(model);
+            llama_model_free(model);
             return iparams;
         }
-        iparams.lora_adapters.push_back(loaded_la); // copy to list of loaded adapters
+
+        la.ptr = lora.get();
+        iparams.lora.emplace_back(std::move(lora)); // copy to list of loaded adapters
     }
+
     if (!params.lora_init_without_apply) {
-        common_lora_adapters_apply(lctx, iparams.lora_adapters);
+        common_lora_adapters_apply(lctx, params.lora_adapters);
     }
 
     if (params.sampling.ignore_eos && llama_token_eos(model) == LLAMA_TOKEN_NULL) {
@@ -985,7 +991,7 @@ struct common_init_result common_init_from_params(common_params & params) {
         if (llama_model_has_encoder(model)) {
             llama_encode(lctx, llama_batch_get_one(tmp.data(), tmp.size()));
             llama_token decoder_start_token_id = llama_model_decoder_start_token(model);
-            if (decoder_start_token_id == -1) {
+            if (decoder_start_token_id == LLAMA_TOKEN_NULL) {
                 decoder_start_token_id = bos;
             }
             tmp.clear();
@@ -999,17 +1005,17 @@ struct common_init_result common_init_from_params(common_params & params) {
         llama_perf_context_reset(lctx);
     }
 
-    iparams.model   = model;
-    iparams.context = lctx;
+    iparams.model.reset(model);
+    iparams.context.reset(lctx);
 
     return iparams;
 }
 
-void common_lora_adapters_apply(struct llama_context * ctx, std::vector<common_lora_adapter_container> & lora_adapters) {
+void common_lora_adapters_apply(struct llama_context * ctx, std::vector<common_lora_adapter_info> & lora) {
     llama_lora_adapter_clear(ctx);
-    for (auto & la : lora_adapters) {
+    for (auto & la : lora) {
         if (la.scale != 0.0f) {
-            llama_lora_adapter_set(ctx, la.adapter, la.scale);
+            llama_lora_adapter_set(ctx, la.ptr, la.scale);
         }
     }
 }
@@ -1105,7 +1111,7 @@ struct ggml_threadpool_params ggml_threadpool_params_from_cpu_params(const cpu_p
 #define CURL_MAX_RETRY 3
 #define CURL_RETRY_DELAY_SECONDS 2
 
-static bool curl_perform_with_retry(const std::string& url, CURL* curl, int max_attempts, int retry_delay_seconds) {
+static bool curl_perform_with_retry(const std::string & url, CURL * curl, int max_attempts, int retry_delay_seconds) {
     int remaining_attempts = max_attempts;
 
     while (remaining_attempts > 0) {
@@ -1129,7 +1135,6 @@ static bool curl_perform_with_retry(const std::string& url, CURL* curl, int max_
 }
 
 static bool common_download_file(const std::string & url, const std::string & path, const std::string & hf_token) {
-
     // Initialize libcurl
     std::unique_ptr<CURL, decltype(&curl_easy_cleanup)> curl(curl_easy_init(), &curl_easy_cleanup);
     if (!curl) {
@@ -1159,8 +1164,7 @@ static bool common_download_file(const std::string & url, const std::string & pa
 #endif
 
     // Check if the file already exists locally
-    struct stat model_file_info;
-    auto file_exists = (stat(path.c_str(), &model_file_info) == 0);
+    auto file_exists = std::filesystem::exists(path);
 
     // If the file exists, check its JSON metadata companion file.
     std::string metadata_path = path + ".json";
@@ -1202,11 +1206,13 @@ static bool common_download_file(const std::string & url, const std::string & pa
         std::string etag;
         std::string last_modified;
     };
+
     common_load_model_from_url_headers headers;
+
     {
         typedef size_t(*CURLOPT_HEADERFUNCTION_PTR)(char *, size_t, size_t, void *);
         auto header_callback = [](char * buffer, size_t /*size*/, size_t n_items, void * userdata) -> size_t {
-            common_load_model_from_url_headers *headers = (common_load_model_from_url_headers *) userdata;
+            common_load_model_from_url_headers * headers = (common_load_model_from_url_headers *) userdata;
 
             static std::regex header_regex("([^:]+): (.*)\r\n");
             static std::regex etag_regex("ETag", std::regex_constants::icase);
@@ -1418,7 +1424,7 @@ struct llama_model * common_load_model_from_url(
         }
     }
 
-    return llama_load_model_from_file(local_path.c_str(), params);
+    return llama_model_load_from_file(local_path.c_str(), params);
 }
 
 struct llama_model * common_load_model_from_hf(
@@ -1621,6 +1627,18 @@ std::string common_detokenize(llama_context * ctx, const std::vector<llama_token
 // Chat template utils
 //
 
+std::string common_get_builtin_chat_template(const struct llama_model * model) {
+    static const char * template_key = "tokenizer.chat_template";
+    // call with NULL buffer to get the total size of the string
+    int32_t res = llama_model_meta_val_str(model, template_key, NULL, 0);
+    if (res > 0) {
+        std::vector<char> model_template(res + 1, 0);
+        llama_model_meta_val_str(model, template_key, model_template.data(), model_template.size());
+        return std::string(model_template.data(), model_template.size() - 1);
+    }
+    return "";
+}
+
 bool common_chat_verify_template(const std::string & tmpl) {
     llama_chat_message chat[] = {{"user", "test"}};
     int res = llama_chat_apply_template(nullptr, tmpl.c_str(), chat, 1, true, nullptr, 0);
@@ -1790,7 +1808,9 @@ void common_embd_normalize(const float * inp, float * out, int n, int embd_norm)
             break;
         case 0: // max absolute
             for (int i = 0; i < n; i++) {
-                if (sum < std::abs(inp[i])) sum = std::abs(inp[i]);
+                if (sum < std::abs(inp[i])) {
+                    sum = std::abs(inp[i]);
+                }
             }
             sum /= 32760.0; // make an int16 range
             break;

@@ -201,6 +201,7 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 - [Paddler](https://github.com/distantmagic/paddler) - Stateful load balancer custom-tailored for llama.cpp
 - [GPUStack](https://github.com/gpustack/gpustack) - Manage GPU clusters for running LLMs
 - [llama_cpp_canister](https://github.com/onicai/llama_cpp_canister) - llama.cpp as a smart contract on the Internet Computer, using WebAssembly
+- [llama-swap](https://github.com/mostlygeek/llama-swap) - transparent proxy that adds automatic model switching with llama-server
 
 </details>
 
@@ -221,7 +222,7 @@ Instructions for adding support for new models: [HOWTO-add-model.md](docs/develo
 | [SYCL](docs/backend/SYCL.md) | Intel and Nvidia GPU |
 | [MUSA](docs/build.md#musa) | Moore Threads MTT GPU |
 | [CUDA](docs/build.md#cuda) | Nvidia GPU |
-| [hipBLAS](docs/build.md#hipblas) | AMD GPU |
+| [HIP](docs/build.md#hip) | AMD GPU |
 | [Vulkan](docs/build.md#vulkan) | GPU |
 | [CANN](docs/build.md#cann) | Ascend NPU |
 
@@ -414,7 +415,7 @@ To learn more about model quantization, [read this documentation](examples/quant
 [^1]: [examples/perplexity/README.md](examples/perplexity/README.md)
 [^2]: [https://huggingface.co/docs/transformers/perplexity](https://huggingface.co/docs/transformers/perplexity)
 
-## [`llama-bench`](example/bench)
+## [`llama-bench`](examples/llama-bench)
 
 #### Benchmark the performance of the inference for various parameters.
 
@@ -448,7 +449,7 @@ To learn more about model quantization, [read this documentation](examples/quant
 
     </details>
 
-[^3]: [https://github.com/containers/ramalama](RamaLama)
+[^3]: [RamaLama](https://github.com/containers/ramalama)
 
 ## [`llama-simple`](examples/simple)
 
