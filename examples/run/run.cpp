@@ -19,17 +19,19 @@
 #include <cstring>
 #include <filesystem>
 #include <iostream>
+#include <list>
 #include <sstream>
 #include <string>
 #include <vector>
 
 #include "common.h"
 #include "json.hpp"
+#include "linenoise.cpp/linenoise.h"
 #include "llama-cpp.h"
 
 #if defined(__unix__) || (defined(__APPLE__) && defined(__MACH__)) || defined(_WIN32)
 [[noreturn]] static void sigint_handler(int) {
-    printf("\n");
+    printf("\n\033[0m");
     exit(0);  // not ideal, but it's the only way to guarantee exit in all cases
 }
 #endif
@@ -536,7 +538,7 @@ class LlamaData {
     llama_sampler_ptr               sampler;
     llama_context_ptr               context;
     std::vector<llama_chat_message> messages;
-    std::vector<std::string>        msg_strs;
+    std::list<std::string>          msg_strs;
     std::vector<char>               fmtted;
 
     int init(Opt & opt) {
@@ -685,7 +687,7 @@ class LlamaData {
 
     // Initializes the context with the specified parameters
     llama_context_ptr initialize_context(const llama_model_ptr & model, const Opt & opt) {
-        llama_context_ptr context(llama_new_context_with_model(model.get(), opt.ctx_params));
+        llama_context_ptr context(llama_init_from_model(model.get(), opt.ctx_params));
         if (!context) {
             printe("%s: error: failed to create the llama_context\n", __func__);
         }
@@ -713,11 +715,11 @@ static void add_message(const char * role, const std::string & text, LlamaData &
 // Function to apply the chat template and resize `formatted` if needed
 static int apply_chat_template(LlamaData & llama_data, const bool append) {
     int result = llama_chat_apply_template(
-        llama_data.model.get(), nullptr, llama_data.messages.data(), llama_data.messages.size(), append,
+        llama_model_chat_template(llama_data.model.get()), llama_data.messages.data(), llama_data.messages.size(), append,
         append ? llama_data.fmtted.data() : nullptr, append ? llama_data.fmtted.size() : 0);
     if (append && result > static_cast<int>(llama_data.fmtted.size())) {
         llama_data.fmtted.resize(result);
-        result = llama_chat_apply_template(llama_data.model.get(), nullptr, llama_data.messages.data(),
+        result = llama_chat_apply_template(llama_model_chat_template(llama_data.model.get()), llama_data.messages.data(),
                                            llama_data.messages.size(), append, llama_data.fmtted.data(),
                                            llama_data.fmtted.size());
     }
@@ -726,11 +728,13 @@ static int apply_chat_template(LlamaData & llama_data, const bool append) {
 }
 
 // Function to tokenize the prompt
-static int tokenize_prompt(const llama_model_ptr & model, const std::string & prompt,
-                           std::vector<llama_token> & prompt_tokens) {
-    const int n_prompt_tokens = -llama_tokenize(model.get(), prompt.c_str(), prompt.size(), NULL, 0, true, true);
+static int tokenize_prompt(const llama_vocab * vocab, const std::string & prompt,
+                           std::vector<llama_token> & prompt_tokens, const LlamaData & llama_data) {
+    const bool is_first = llama_get_kv_cache_used_cells(llama_data.context.get()) == 0;
+
+    const int n_prompt_tokens = -llama_tokenize(vocab, prompt.c_str(), prompt.size(), NULL, 0, is_first, true);
     prompt_tokens.resize(n_prompt_tokens);
-    if (llama_tokenize(model.get(), prompt.c_str(), prompt.size(), prompt_tokens.data(), prompt_tokens.size(), true,
+    if (llama_tokenize(vocab, prompt.c_str(), prompt.size(), prompt_tokens.data(), prompt_tokens.size(), is_first,
                        true) < 0) {
         printe("failed to tokenize the prompt\n");
         return -1;
@@ -753,9 +757,9 @@ static int check_context_size(const llama_context_ptr & ctx, const llama_batch &
 }
 
 // convert the token to a string
-static int convert_token_to_string(const llama_model_ptr & model, const llama_token token_id, std::string & piece) {
+static int convert_token_to_string(const llama_vocab * vocab, const llama_token token_id, std::string & piece) {
     char buf[256];
-    int  n = llama_token_to_piece(model.get(), token_id, buf, sizeof(buf), 0, true);
+    int  n = llama_token_to_piece(vocab, token_id, buf, sizeof(buf), 0, true);
     if (n < 0) {
         printe("failed to convert token to piece\n");
         return 1;
@@ -773,8 +777,10 @@ static void print_word_and_concatenate_to_response(const std::string & piece, st
 
 // helper function to evaluate a prompt and generate a response
 static int generate(LlamaData & llama_data, const std::string & prompt, std::string & response) {
+    const llama_vocab * vocab = llama_model_get_vocab(llama_data.model.get());
+
     std::vector<llama_token> tokens;
-    if (tokenize_prompt(llama_data.model, prompt, tokens) < 0) {
+    if (tokenize_prompt(vocab, prompt, tokens, llama_data) < 0) {
         return 1;
     }
 
@@ -790,12 +796,12 @@ static int generate(LlamaData & llama_data, const std::string & prompt, std::str
 
         // sample the next token, check is it an end of generation?
         new_token_id = llama_sampler_sample(llama_data.sampler.get(), llama_data.context.get(), -1);
-        if (llama_token_is_eog(llama_data.model.get(), new_token_id)) {
+        if (llama_vocab_is_eog(vocab, new_token_id)) {
             break;
         }
 
         std::string piece;
-        if (convert_token_to_string(llama_data.model, new_token_id, piece)) {
+        if (convert_token_to_string(vocab, new_token_id, piece)) {
             return 1;
         }
 
@@ -805,23 +811,43 @@ static int generate(LlamaData & llama_data, const std::string & prompt, std::str
         batch = llama_batch_get_one(&new_token_id, 1);
     }
 
+    printf("\033[0m");
     return 0;
 }
 
-static int read_user_input(std::string & user) {
-    std::getline(std::cin, user);
+static int read_user_input(std::string & user_input) {
+    static const char * prompt_prefix = "> ";
+#ifdef WIN32
+    printf(
+        "\r%*s"
+        "\r\033[0m%s",
+        get_terminal_width(), " ", prompt_prefix);
+
+    std::getline(std::cin, user_input);
     if (std::cin.eof()) {
         printf("\n");
         return 1;
     }
-
-    if (user == "/bye") {
+#else
+    std::unique_ptr<char, decltype(&std::free)> line(const_cast<char *>(linenoise(prompt_prefix)), free);
+    if (!line) {
         return 1;
     }
 
-    if (user.empty()) {
+    user_input = line.get();
+#endif
+
+    if (user_input == "/bye") {
+        return 1;
+    }
+
+    if (user_input.empty()) {
         return 2;
     }
+
+#ifndef WIN32
+    linenoiseHistoryAdd(line.get());
+#endif
 
     return 0;  // Should have data in happy path
 }
@@ -863,10 +889,6 @@ static int handle_user_input(std::string & user_input, const std::string & user)
         return 0;  // No need for interactive input
     }
 
-    printf(
-        "\r%*s"
-        "\r\033[32m> \033[0m",
-        get_terminal_width(), " ");
     return read_user_input(user_input);  // Returns true if input ends the loop
 }
 
