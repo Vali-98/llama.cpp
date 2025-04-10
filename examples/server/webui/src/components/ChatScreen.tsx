@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { CallbackGeneratedChunk, useAppContext } from '../utils/app.context';
 import ChatMessage from './ChatMessage';
 import { CanvasType, Message, PendingMessage } from '../utils/types';
@@ -6,6 +6,7 @@ import { classNames, cleanCurrentUrl, throttle } from '../utils/misc';
 import CanvasPyInterpreter from './CanvasPyInterpreter';
 import StorageUtils from '../utils/storage';
 import { useVSCodeContext } from '../utils/llama-vscode';
+import { useChatTextarea, ChatTextareaApi } from './useChatTextarea.ts';
 
 /**
  * A message display is a message node with additional information for rendering.
@@ -99,13 +100,10 @@ export default function ChatScreen() {
     canvasData,
     replaceMessageAndGenerate,
   } = useAppContext();
-  const [inputMsg, setInputMsg] = useState(prefilledMsg.content());
-  const inputRef = useRef<HTMLTextAreaElement>(null);
 
-  const { extraContext, clearExtraContext } = useVSCodeContext(
-    inputRef,
-    setInputMsg
-  );
+  const textarea: ChatTextareaApi = useChatTextarea(prefilledMsg.content());
+
+  const { extraContext, clearExtraContext } = useVSCodeContext(textarea);
   // TODO: improve this when we have "upload file" feature
   const currExtra: Message['extra'] = extraContext ? [extraContext] : undefined;
 
@@ -135,9 +133,10 @@ export default function ChatScreen() {
   };
 
   const sendNewMessage = async () => {
-    if (inputMsg.trim().length === 0 || isGenerating(currConvId ?? '')) return;
-    const lastInpMsg = inputMsg;
-    setInputMsg('');
+    const lastInpMsg = textarea.value();
+    if (lastInpMsg.trim().length === 0 || isGenerating(currConvId ?? ''))
+      return;
+    textarea.setValue('');
     scrollToBottom(false);
     setCurrNodeId(-1);
     // get the last message node
@@ -146,13 +145,13 @@ export default function ChatScreen() {
       !(await sendMessage(
         currConvId,
         lastMsgNodeId,
-        inputMsg,
+        lastInpMsg,
         currExtra,
         onChunk
       ))
     ) {
       // restore the input message if failed
-      setInputMsg(lastInpMsg);
+      textarea.setValue(lastInpMsg);
     }
     // OK
     clearExtraContext();
@@ -195,16 +194,13 @@ export default function ChatScreen() {
       // send the prefilled message if needed
       sendNewMessage();
     } else {
-      // otherwise, focus on the input and move the cursor to the end
-      if (inputRef.current) {
-        inputRef.current.focus();
-        inputRef.current.selectionStart = inputRef.current.value.length;
-      }
+      // otherwise, focus on the input
+      textarea.focus();
     }
     prefilledMsg.clear();
     // no need to keep track of sendNewMessage
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [inputRef]);
+  }, [textarea.ref]);
 
   // due to some timing issues of StorageUtils.appendMsg(), we need to make sure the pendingMsg is not duplicated upon rendering (i.e. appears once in the saved conversation and once in the pendingMsg)
   const pendingMsgDisplay: MessageDisplay[] =
@@ -254,16 +250,16 @@ export default function ChatScreen() {
         </div>
 
         {/* chat input */}
-        <div className="flex flex-row items-center pt-8 pb-6 sticky bottom-0 bg-base-100">
+        <div className="flex flex-row items-end pt-8 pb-6 sticky bottom-0 bg-base-100">
           <textarea
-            className="textarea textarea-bordered w-full"
+            // Default (mobile): Enable vertical resize, overflow auto for scrolling if needed
+            // Large screens (lg:): Disable manual resize, apply max-height for autosize limit
+            className="textarea textarea-bordered w-full resize-vertical lg:resize-none lg:max-h-48 lg:overflow-y-auto" // Adjust lg:max-h-48 as needed (e.g., lg:max-h-60)
             placeholder="Type a message (Shift+Enter to add a new line)"
-            ref={inputRef}
-            value={inputMsg}
-            onChange={(e) => setInputMsg(e.target.value)}
+            ref={textarea.ref}
+            onInput={textarea.onInput} // Hook's input handler (will only resize height on lg+ screens)
             onKeyDown={(e) => {
               if (e.nativeEvent.isComposing || e.keyCode === 229) return;
-              if (e.key === 'Enter' && e.shiftKey) return;
               if (e.key === 'Enter' && !e.shiftKey) {
                 e.preventDefault();
                 sendNewMessage();
@@ -271,7 +267,11 @@ export default function ChatScreen() {
             }}
             id="msg-input"
             dir="auto"
+            // Set a base height of 2 rows for mobile views
+            // On lg+ screens, the hook will calculate and set the initial height anyway
+            rows={2}
           ></textarea>
+
           {isGenerating(currConvId ?? '') ? (
             <button
               className="btn btn-neutral ml-2"
@@ -280,11 +280,7 @@ export default function ChatScreen() {
               Stop
             </button>
           ) : (
-            <button
-              className="btn btn-primary ml-2"
-              onClick={sendNewMessage}
-              disabled={inputMsg.trim().length === 0}
-            >
+            <button className="btn btn-primary ml-2" onClick={sendNewMessage}>
               Send
             </button>
           )}
