@@ -341,7 +341,7 @@ static inline void __avx_f32cx8_store(ggml_fp16_t *x, __m256 y) {
 #define GGML_F32_EPR  4
 
 #define GGML_F32x4              vector float
-#define GGML_F32x4_ZERO         0.0f
+#define GGML_F32x4_ZERO         {0.0f}
 #define GGML_F32x4_SET1         vec_splats
 #define GGML_F32x4_LOAD(p)      vec_xl(0, p)
 #define GGML_F32x4_STORE(p, r)  vec_xst(r, 0, p)
@@ -855,13 +855,17 @@ static inline __vector float __lzs_f16cx4_load(const ggml_fp16_t * x) {
         tmp[i] = GGML_FP16_TO_FP32(x[i]);
     }
 
-    return vec_xl(0, tmp);
+    // note: keep type-cast here to prevent compiler bugs
+    // see: https://github.com/ggml-org/llama.cpp/issues/12846
+    return vec_xl(0, (const float *)(tmp));
 }
 
 static inline void __lzs_f16cx4_store(ggml_fp16_t * x, __vector float y) {
     float arr[4];
 
-    vec_xst(y, 0, arr);
+    // note: keep type-cast here to prevent compiler bugs
+    // see: https://github.com/ggml-org/llama.cpp/issues/12846
+    vec_xst(y, 0, (float *)(arr));
 
     for (int i = 0; i < 4; i++) {
         x[i] = GGML_FP32_TO_FP16(arr[i]);
