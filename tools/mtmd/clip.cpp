@@ -2509,7 +2509,7 @@ struct clip_model_loader {
 
                 ggml_backend_buffer_type_t buft = ggml_backend_get_default_buffer_type(ctx_clip.backend);
                 ctx_clip.buf.reset(ggml_backend_alloc_ctx_tensors_from_buft(ctx_clip.ctx_data.get(), buft));
-                ggml_backend_buffer_set_usage(ctx_clip.buf.get(), ggml_BACKEND_BUFFER_USAGE_WEIGHTS);
+                ggml_backend_buffer_set_usage(ctx_clip.buf.get(), GGML_BACKEND_BUFFER_USAGE_WEIGHTS);
 
                 for (auto & t : tensors_to_load) {
                     ggml_tensor * cur = ggml_get_tensor(ctx_clip.ctx_data.get(), t->name);
