@@ -49,6 +49,7 @@ class TensorInfo:
 class GGUFValue:
     value: Any
     type: GGUFValueType
+    sub_type: GGUFValueType | None = None
 
 
 class WriterState(Enum):
@@ -238,7 +239,7 @@ class GGUFWriter:
 
             for key, val in kv_data.items():
                 kv_bytes += self._pack_val(key, GGUFValueType.STRING, add_vtype=False)
-                kv_bytes += self._pack_val(val.value, val.type, add_vtype=True)
+                kv_bytes += self._pack_val(val.value, val.type, add_vtype=True, sub_type=val.sub_type)
 
             fout.write(kv_bytes)
 
@@ -268,11 +269,11 @@ class GGUFWriter:
             fout.flush()
         self.state = WriterState.TI_DATA
 
-    def add_key_value(self, key: str, val: Any, vtype: GGUFValueType) -> None:
+    def add_key_value(self, key: str, val: Any, vtype: GGUFValueType, sub_type: GGUFValueType | None = None) -> None:
         if any(key in kv_data for kv_data in self.kv_data):
-            raise ValueError(f'Duplicated key name {key!r}')
+            logger.warning(f'Duplicated key name {key!r}, overwriting it with new value {val!r} of type {vtype.name}')
 
-        self.kv_data[0][key] = GGUFValue(value=val, type=vtype)
+        self.kv_data[0][key] = GGUFValue(value=val, type=vtype, sub_type=sub_type)
 
     def add_uint8(self, key: str, val: int) -> None:
         self.add_key_value(key,val, GGUFValueType.UINT8)
@@ -671,6 +672,18 @@ class GGUFWriter:
     def add_decoder_start_token_id(self, id: int) -> None:
         self.add_uint32(Keys.LLM.DECODER_START_TOKEN_ID.format(arch=self.arch), id)
 
+    def add_embedding_length_per_layer_input(self, value: int) -> None:
+        self.add_uint32(Keys.LLM.EMBD_LENGTH_PER_LAYER_INP.format(arch=self.arch), value)
+
+    def add_altup_active_idx(self, val: int) -> None:
+        self.add_uint32(Keys.LLM.ALTUP_ACTIVE_IDX.format(arch=self.arch), val)
+
+    def add_altup_num_inputs(self, val: int) -> None:
+        self.add_uint32(Keys.LLM.ALTUP_NUM_INPUTS.format(arch=self.arch), val)
+
+    def add_activation_sparsity_scale(self, values: Sequence[float]) -> None:
+        self.add_array(Keys.LLM.ACTIVATION_SPARSITY_SCALE.format(arch=self.arch), values)
+
     def add_head_count(self, count: int | Sequence[int]) -> None:
         if isinstance(count, int):
             self.add_uint32(Keys.Attention.HEAD_COUNT.format(arch=self.arch), count)
@@ -700,6 +713,12 @@ class GGUFWriter:
 
     def add_clamp_kqv(self, value: float) -> None:
         self.add_float32(Keys.Attention.CLAMP_KQV.format(arch=self.arch), value)
+
+    def add_shared_kv_layers(self, value: float) -> None:
+        self.add_float32(Keys.Attention.SHARED_KV_LAYERS.format(arch=self.arch), value)
+
+    def add_sliding_window_pattern(self, value: Sequence[bool]) -> None:
+        self.add_array(Keys.Attention.SLIDING_WINDOW_PATTERN.format(arch=self.arch), value)
 
     def add_logit_scale(self, value: float) -> None:
         self.add_float32(Keys.LLM.LOGIT_SCALE.format(arch=self.arch), value)
@@ -890,6 +909,9 @@ class GGUFWriter:
     def add_add_eos_token(self, value: bool) -> None:
         self.add_bool(Keys.Tokenizer.ADD_EOS, value)
 
+    def add_add_sep_token(self, value: bool) -> None:
+        self.add_bool(Keys.Tokenizer.ADD_SEP, value)
+
     def add_add_space_prefix(self, value: bool) -> None:
         self.add_bool(Keys.Tokenizer.ADD_PREFIX, value)
 
@@ -933,6 +955,9 @@ class GGUFWriter:
 
     def add_eom_token_id(self, id: int) -> None:
         self.add_uint32(Keys.Tokenizer.EOM_ID, id)
+
+    def add_classifier_output_labels(self, labels: Sequence[str]) -> None:
+        self.add_array(Keys.Classifier.OUTPUT_LABELS.format(arch=self.arch), labels)
 
     # for vision models
 
@@ -1022,7 +1047,7 @@ class GGUFWriter:
             pack_prefix = '<' if self.endianess == GGUFEndian.LITTLE else '>'
         return struct.pack(f'{pack_prefix}{fmt}', value)
 
-    def _pack_val(self, val: Any, vtype: GGUFValueType, add_vtype: bool) -> bytes:
+    def _pack_val(self, val: Any, vtype: GGUFValueType, add_vtype: bool, sub_type: GGUFValueType | None = None) -> bytes:
         kv_data = bytearray()
 
         if add_vtype:
@@ -1043,7 +1068,9 @@ class GGUFWriter:
             if len(val) == 0:
                 raise ValueError("Invalid GGUF metadata array. Empty array")
 
-            if isinstance(val, bytes):
+            if sub_type is not None:
+                ltype = sub_type
+            elif isinstance(val, bytes):
                 ltype = GGUFValueType.UINT8
             else:
                 ltype = GGUFValueType.get_type(val[0])
