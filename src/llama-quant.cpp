@@ -653,7 +653,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
                 gguf_set_val_f32(ctx_out.get(), o.key, o.val_f64);
             } else if (o.tag == LLAMA_KV_OVERRIDE_TYPE_INT) {
                 // Setting type to UINT32. See https://github.com/ggml-org/llama.cpp/pull/14182 for context
-                gguf_set_val_u32(ctx_out.get(), o.key, (uint32_t)abs(o.val_i64));
+                gguf_set_val_u32(ctx_out.get(), o.key, (uint32_t)std::abs(o.val_i64));
             } else if (o.tag == LLAMA_KV_OVERRIDE_TYPE_BOOL) {
                 gguf_set_val_bool(ctx_out.get(), o.key, o.val_bool);
             } else if (o.tag == LLAMA_KV_OVERRIDE_TYPE_STR) {
@@ -681,7 +681,9 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
             }
             LLAMA_LOG_DEBUG("%s: pruning tensor %s\n", __func__, it.first.c_str());
             continue;
-        } else if (remapped_name != it.first) {
+        }
+
+        if (remapped_name != it.first) {
             ggml_set_name(it.second.tensor, remapped_name.c_str());
             LLAMA_LOG_DEBUG("%s: tensor %s remapped to %s\n", __func__, it.first.c_str(), ggml_get_name(it.second.tensor));
         }
@@ -701,6 +703,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         });
     }
 
+    bool is_clip_model = false;
     for (const auto * it : tensors) {
         const struct ggml_tensor * tensor = it->tensor;
 
@@ -714,20 +717,30 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         } else if (name == LLM_TN(model.arch)(LLM_TENSOR_OUTPUT, "weight")) {
             qs.has_output = true;
         }
+
+        is_clip_model |= name.rfind("mm.", 0) == 0; // check the "mm." prefix
     }
 
     qs.n_ffn_down = qs.n_ffn_gate = qs.n_ffn_up = (int)model.hparams.n_layer;
 
     // sanity checks for models that have attention layers
-    if (qs.n_attention_wv != 0)
+    if (qs.n_attention_wv != 0 && !is_clip_model)
     {
         const auto & n_head_kv_iter = model.hparams.n_head_kv_arr.begin();
         // attention layers have a non-zero number of kv heads
-        int32_t n_attn_layer = model.hparams.n_layer - std::count(n_head_kv_iter, n_head_kv_iter + model.hparams.n_layer, 0);
+        int32_t n_layer_attn = model.hparams.n_layer - std::count(n_head_kv_iter, n_head_kv_iter + model.hparams.n_layer, 0);
         if (llama_model_has_encoder(&model)) {
-            n_attn_layer *= 3;
+            // now n_layer_attn is the number of attention layers in the encoder
+            // for each decoder block, there are 2 attention layers
+            n_layer_attn += 2 * model.hparams.dec_n_layer;
         }
-        GGML_ASSERT((qs.n_attention_wv == n_attn_layer - pruned_attention_w) && "n_attention_wv is unexpected");
+
+        // note: for linear-attention models (such as Qwen3 Next) this is the number of linear layers
+        const int32_t n_layer_recr = std::count(model.hparams.recurrent_layer_arr.begin(), model.hparams.recurrent_layer_arr.end(), true);
+
+        LLAMA_LOG_INFO("%s: n_layer_attn = %d, n_layer_recr = %d, pruned_attention_w = %d\n", __func__, n_layer_attn, n_layer_recr, pruned_attention_w);
+
+        GGML_ASSERT((qs.n_attention_wv == n_layer_attn - pruned_attention_w - n_layer_recr) && "n_attention_wv is unexpected");
     }
 
     size_t total_size_org = 0;
@@ -879,6 +892,9 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
         // do not quantize relative position bias (T5)
         quantize &= name.find("attn_rel_b.weight") == std::string::npos;
 
+        // do not quantize specific multimodal tensors
+        quantize &= name.find(".position_embd.") == std::string::npos;
+
         ggml_type new_type;
         void * new_data;
         size_t new_size;
@@ -920,7 +936,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
             new_type = tensor->type;
             new_data = tensor->data;
             new_size = ggml_nbytes(tensor);
-            LLAMA_LOG_INFO("size = %8.3f MB\n", ggml_nbytes(tensor)/1024.0/1024.0);
+            LLAMA_LOG_INFO("size = %8.3f MiB\n", ggml_nbytes(tensor)/1024.0/1024.0);
         } else {
             const int64_t nelements = ggml_nelements(tensor);
 
@@ -999,7 +1015,7 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
                 new_size += llama_tensor_quantize_impl(new_type, f32_data_03, new_data_03, chunk_size, nrows, n_per_row, imatrix_03, workers, nthread_use);
 
                 // TODO: temporary sanity check that the F16 -> MXFP4 is lossless
-#if 1
+#if 0
                 if (new_type == GGML_TYPE_MXFP4) {
                     auto * x = f32_data_03;
 
@@ -1037,8 +1053,8 @@ static void llama_model_quantize_impl(const std::string & fname_inp, const std::
     }
     close_ofstream();
 
-    LLAMA_LOG_INFO("%s: model size  = %8.2f MB\n", __func__, total_size_org/1024.0/1024.0);
-    LLAMA_LOG_INFO("%s: quant size  = %8.2f MB\n", __func__, total_size_new/1024.0/1024.0);
+    LLAMA_LOG_INFO("%s: model size  = %8.2f MiB\n", __func__, total_size_org/1024.0/1024.0);
+    LLAMA_LOG_INFO("%s: quant size  = %8.2f MiB\n", __func__, total_size_new/1024.0/1024.0);
 
     if (qs.n_fallback > 0) {
         LLAMA_LOG_WARN("%s: WARNING: %d of %d tensor(s) required fallback quantization\n",

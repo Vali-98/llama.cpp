@@ -13,6 +13,11 @@ add_library(mtmd
             mtmd-helper.h
             )
 
+set_target_properties(mtmd PROPERTIES
+    VERSION ${LLAMA_INSTALL_VERSION}
+    SOVERSION 0
+)
+
 target_link_libraries     (mtmd PUBLIC ggml llama)
 target_link_libraries     (mtmd PRIVATE Threads::Threads)
 target_include_directories(mtmd PUBLIC  .)
@@ -55,6 +60,8 @@ add_executable(llama-qwen2vl-cli  deprecation-warning.cpp)
 set(TARGET llama-mtmd-cli)
 add_executable         (${TARGET} mtmd-cli.cpp)
 set_target_properties  (${TARGET} PROPERTIES OUTPUT_NAME llama-mtmd-cli)
-install                (TARGETS ${TARGET} RUNTIME)
+if(LLAMA_TOOLS_INSTALL)
+    install(TARGETS ${TARGET} RUNTIME)
+endif()
 target_link_libraries  (${TARGET} PRIVATE common mtmd Threads::Threads)
 target_compile_features(${TARGET} PRIVATE cxx_std_17)
