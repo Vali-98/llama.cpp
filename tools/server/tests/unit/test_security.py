@@ -6,7 +6,7 @@ server = ServerPreset.tinyllama2()
 
 TEST_API_KEY = "sk-this-is-the-secret-key"
 
-@pytest.fixture(scope="module", autouse=True)
+@pytest.fixture(autouse=True)
 def create_server():
     global server
     server = ServerPreset.tinyllama2()
@@ -43,6 +43,19 @@ def test_correct_api_key():
         "prompt": "I believe the meaning of life is",
     }, headers={
         "Authorization": f"Bearer {TEST_API_KEY}",
+    })
+    assert res.status_code == 200
+    assert "error" not in res.body
+    assert "content" in res.body
+
+
+def test_correct_api_key_anthropic_header():
+    global server
+    server.start()
+    res = server.make_request("POST", "/completions", data={
+        "prompt": "I believe the meaning of life is",
+    }, headers={
+        "X-Api-Key": TEST_API_KEY,
     })
     assert res.status_code == 200
     assert "error" not in res.body
