@@ -1003,13 +1003,21 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             params.n_chunks = value;
         }
     ).set_examples({LLAMA_EXAMPLE_IMATRIX, LLAMA_EXAMPLE_PERPLEXITY, LLAMA_EXAMPLE_RETRIEVAL}));
-    add_opt(common_arg(
-        {"-fa", "--flash-attn"},
-        string_format("enable Flash Attention (default: %s)", params.flash_attn ? "enabled" : "disabled"),
-        [](common_params & params) {
-            params.flash_attn = true;
-        }
-    ).set_env("LLAMA_ARG_FLASH_ATTN"));
+     add_opt(common_arg({ "-fa", "--flash-attn" }, "[on|off|auto]",
+                       string_format("set Flash Attention use ('on', 'off', or 'auto', default: '%s')",
+                                     llama_flash_attn_type_name(params.flash_attn_type)),
+                       [](common_params & params, const std::string & value) {
+                           if (is_truthy(value)) {
+                               params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_ENABLED;
+                           } else if (is_falsey(value)) {
+                               params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_DISABLED;
+                           } else if (is_autoy(value)) {
+                               params.flash_attn_type = LLAMA_FLASH_ATTN_TYPE_AUTO;
+                           } else {
+                               throw std::runtime_error(
+                                   string_format("error: unknown value for --flash-attn: '%s'\n", value.c_str()));
+                           }
+                       }).set_env("LLAMA_ARG_FLASH_ATTN"));
     add_opt(common_arg(
         {"-p", "--prompt"}, "PROMPT",
         "prompt to start generation with; for system message, use -sys",
@@ -2668,13 +2676,6 @@ common_params_context common_params_parser_init(common_params & params, llama_ex
             common_log_set_file(common_log_main(), value.c_str());
         }
     ).set_env("LLAMA_LOG_FILE"));
-    add_opt(common_arg(
-        {"--log-colors"},
-        "Enable colored logging",
-        [](common_params &) {
-            common_log_set_colors(common_log_main(), true);
-        }
-    ).set_env("LLAMA_LOG_COLORS"));
     add_opt(common_arg(
         {"-v", "--verbose", "--log-verbose"},
         "Set verbosity level to infinity (i.e. log all messages, useful for debugging)",

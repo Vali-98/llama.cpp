@@ -302,6 +302,10 @@ struct lr_opt {
 struct ggml_opt_optimizer_params common_opt_lr_pars(void * userdata);
 
 struct common_params {
+    void * progress_callback_user_data        = nullptr;
+    llama_progress_callback progress_callback = nullptr;
+    bool vocab_only               = false;
+    
     int32_t n_predict             =    -1; // new tokens to predict
     int32_t n_ctx                 =  4096; // context size
     int32_t n_batch               =  2048; // logical batch size for prompt processing (must be >=32 to use BLAS)
