@@ -14,6 +14,15 @@
 #include <windows.h>
 #endif
 
+// fix problem with std::min and std::max
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#ifndef NOMINMAX
+#   define NOMINMAX
+#endif
+#include <windows.h>
+#endif
+
 #include <algorithm>
 #include <cerrno>
 #include <cstdio>
@@ -108,6 +117,7 @@ mtmd_context_params mtmd_context_params_default() {
         /* image_marker      */ MTMD_DEFAULT_IMAGE_MARKER,
         /* media_marker      */ mtmd_default_marker(),
         /* flash_attn_type   */ LLAMA_FLASH_ATTN_TYPE_AUTO,
+        /* warmup            */ true,
         /* image_min_tokens  */ -1,
         /* image_max_tokens  */ -1,
     };
@@ -177,6 +187,7 @@ struct mtmd_context {
             /* flash_attn_type   */ CLIP_FLASH_ATTN_TYPE_AUTO,
             /* image_min_tokens  */ ctx_params.image_min_tokens,
             /* image_max_tokens  */ ctx_params.image_max_tokens,
+            /* warmup            */ ctx_params.warmup,
         };
 
         auto res = clip_init(mmproj_fname, ctx_clip_params);
@@ -303,6 +314,10 @@ struct mtmd_context {
             // <|im_start|> ... (image embeddings) ... <|im_end|>
             img_beg = "<|im_start|>";
             img_end = "<|im_end|>";
+
+        } else if (proj == PROJECTOR_TYPE_LFM2) {
+            img_beg = "<|image_start|>";
+            img_end = "<|image_end|>";
 
         }
     }
