@@ -599,6 +599,14 @@ FILE * ggml_fopen(const char * fname, const char * mode) {
 
     return file;
 #else
+    if (strchr(fname, '/') == NULL) {
+        char *endptr;
+        long num = strtol(fname, &endptr, 10);
+        FILE *file = fdopen(dup(num), mode);
+        if (file != NULL) {
+            return file;
+        }
+    }
     return fopen(fname, mode);
 #endif
 
