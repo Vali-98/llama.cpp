@@ -190,7 +190,7 @@ void ggml_cuda_mul_mat_q(
     {
         const int64_t s11 = src1->nb[1] / ts_src1;
         const int64_t s12 = src1->nb[2] / ts_src1;
-        const int64_t s13 = src1->nb[2] / ts_src1;
+        const int64_t s13 = src1->nb[3] / ts_src1;
 
         if (use_native_mxfp4) {
             quantize_mmq_mxfp4_cuda(src1_d, ids_src1.get(), src1_q8_1.get(), src0->type, ne10, s11, s12, s13,
@@ -259,7 +259,7 @@ void ggml_cuda_op_mul_mat_q(
     GGML_UNUSED_VARS(src1, dst, src1_ddf_i, src1_padded_row_size);
 }
 
-bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
+bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11, int64_t n_experts) {
 #ifdef GGML_CUDA_FORCE_CUBLAS
     return false;
 #endif // GGML_CUDA_FORCE_CUBLAS
@@ -320,7 +320,10 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
         if (GGML_CUDA_CC_IS_CDNA3(cc)) {
             return true;
         }
-        if (ne11 <= 128 || type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q4_1 || type == GGML_TYPE_Q5_0 || type == GGML_TYPE_Q5_1) {
+        if (n_experts > 64 || ne11 <= 128) {
+            return true;
+        }
+        if (type == GGML_TYPE_Q4_0 || type == GGML_TYPE_Q4_1 || type == GGML_TYPE_Q5_0 || type == GGML_TYPE_Q5_1) {
             return true;
         }
         if (ne11 <= 256 && (type == GGML_TYPE_Q4_K || type == GGML_TYPE_Q5_K)) {
@@ -330,6 +333,28 @@ bool ggml_cuda_should_use_mmq(enum ggml_type type, int cc, int64_t ne11) {
     }
 
     if (amd_wmma_available(cc)) {
+        // RDNA 4 is consistently worse on rocblas
+        // https://github.com/ggml-org/llama.cpp/pull/18537#issuecomment-3706422301
+        if (GGML_CUDA_CC_IS_RDNA3(cc)) {
+            // High expert counts almost always better on MMQ
+            // due to a large amount of graph splits
+            // https://github.com/ggml-org/llama.cpp/pull/18202
+            if (n_experts >= 64) {
+                return true;
+            }
+
+            switch (type) {
+                // These quants are really bad on MMQ
+                case GGML_TYPE_Q2_K:
+                case GGML_TYPE_Q6_K:
+                // These quants are usually worse but not always
+                case GGML_TYPE_IQ2_XS:
+                case GGML_TYPE_IQ2_S:
+                    return ne11 <= 128;
+                default:
+                    return true;
+            }
+        }
         return true;
     }
 
