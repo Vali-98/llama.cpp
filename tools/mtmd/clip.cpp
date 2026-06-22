@@ -2816,7 +2816,7 @@ struct clip_model_loader {
             for (auto & t : tensors_to_load) {
                 total_data_size += ggml_nbytes(t);
             }
-            size_t data_loaded = 0
+            size_t data_loaded = 0;
 
             if (is_fd) {
                 // Routine for handling FD
